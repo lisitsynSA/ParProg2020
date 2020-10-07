@@ -4,14 +4,13 @@
 #include <omp.h>
 
 double calc(uint32_t x_last, uint32_t num_threads) {
-    double res = 0; 
+    double res = 0;
     double* res_buf = (double*)calloc(x_last, sizeof(double));
     #pragma omp parallel num_threads(num_threads)
     {
         #pragma omp for
         for(int i = x_last; i > 0; --i) {
-            double buf = 1.0 / i;
-            res_buf[i - 1] = buf;
+            res_buf[i - 1] = 1.0 / i;
         }
     }
     for(int i = x_last; i > 0; --i) {
