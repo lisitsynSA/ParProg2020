@@ -4,7 +4,11 @@
 #include <omp.h>
 #include <cmath>
 
-enum { BORDER_DEN = 10 };
+enum BORDERS
+{
+ BORDER_DEN = 100,
+ BORDER_NUM = 2
+};
 
 
 double inverse_fact(int n)
@@ -29,16 +33,42 @@ double inverse_fact_from_border(int n, double border_value, int BORDER)
 
 double calc(uint32_t x_last, uint32_t num_threads)
 {
-  int BORDER = x_last / BORDER_DEN;
+ /* int BORDER = x_last / BORDER_DEN;
+  int BORDER1 = x_last / 10;*/
   double sum(0.0);
-  double border_value(0.0);
+  // double border_value(0.0);
+
+  int* borders = new int[BORDER_NUM];
+  int* border_value = new int[BORDER_NUM];
+  int border_size = x_last / BORDER_NUM;
+  for(int i(0); i < BORDER_NUM; ++i)
+  {
+    borders[i] = i * border_size;
+    std::cout << "borders[" << i << "] = " << borders[i] << std::endl;
+  }
  
   for(int i(0); i < x_last; ++i)
   {
     double value(0.0);
-    if(i > BORDER)
+
+    for(int j(1); j < BORDER_NUM - 1; ++j)
+    {
+      if(i > borders[j + 1])
+        value = inverse_fact_from_border(i, border_value[j + 1], borders[j + 1]);
+      if((i <= borders[j + 1]) && (i > borders[j]))
+        value = inverse_fact_from_border(i, border_value[j], borders[j]);
+      if(i == borders[j])
+        border_value[j] = value;
+    }
+    if(i <= borders[1])
+        value = inverse_fact(i);
+    sum += value;
+
+   /* if(i > BORDER1)
+      value = inverse_fact_from_border(i, border_value, BORDER1);
+    if((i > BORDER) && (i <= BORDER1))
       value = inverse_fact_from_border(i, border_value, BORDER);
-    else
+    if(i <= BORDER)
       value = inverse_fact(i);
     sum += value;
     if(i == BORDER)
@@ -46,7 +76,15 @@ double calc(uint32_t x_last, uint32_t num_threads)
       border_value = value;
       std::cout << "border value: " << 1.0 / border_value << std::endl;
     }
+    if(i == BORDER1)
+    {
+      border_value = value;
+      std::cout << "border value1: " << 1.0 / border_value << std::endl;
+    }*/
   }
+
+  delete[] borders;
+  delete[] border_value;
   
   return sum;
 }
