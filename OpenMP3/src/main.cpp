@@ -22,18 +22,18 @@ double calc(double x0, double x1, double dx, uint32_t num_threads)
         #pragma omp for 
         for(size_t _x = 0; _x < n; ++_x) {
             if(_x == 0 || _x == n - 1) {
-                resbuf[_x] = f(x1 + _x * dx) / 2 * dx; 
+                resbuf[_x] = f(x0 + _x * dx) / 2 * dx; 
             } else {
-                resbuf[_x ]= f(x1 + _x * dx) * dx; 
+                resbuf[_x ]= f(x0 + _x * dx) * dx; 
             }
         }
     }
     size_t j = 0;
     size_t s = 0;
-    for(size_t i = 0; i < n; ++i) {
+    for(size_t i = 0; i <= n; ++i) {
         res += resbuf[j];
         j += DELTA(dx);
-        if(j * dx > x1 - x0) {
+        if(j >= n) {
             s++;
             j = s;
         }
