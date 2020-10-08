@@ -2,23 +2,42 @@
 #include <iomanip>
 #include <fstream>
 #include <omp.h>
+#include <math.h>
 
-double calc() {
-    size_t n_thread = 0;
-    double x1, x2, dx, res = 0.0;
-    printf("Enter first and last x, and dx\n");
-    scanf("%lf %lf %lf", &x1, &x2, &dx);
-    printf("Enter num of thread\n");
-    scanf("%ld", &n_thread);
-    int n = ceil((x2 - x1) / dx); // #pragma omp for don't work with double type
-    
-    #pragma omp parallel num_threads(n_thread)
+#define PI (2 * asin(1))
+#define DELTA(dx) (PI / dx)
+
+double (*f)(double) = sin;
+
+double calc(double x0, double x1, double dx, uint32_t num_threads)
+{  
+    if(x1 - x0 == 0) {
+        return 0.0;
+    }
+    double res = 0.0;
+    size_t n = size_t((x1 - x0) / dx) + 1; // #pragma omp for don't work with double type
+    double* resbuf = (double*)calloc(n, sizeof(double));
+    #pragma omp parallel num_threads(num_threads)
     {
-        #pragma omp for reduction(+:res) 
-        for(int _x = 0; _x < n; ++_x) {
-            res += (f(x1 + _x * dx) + f(x1 + (_x + 1)*dx)) / 2 * dx; 
+        #pragma omp for 
+        for(size_t _x = 0; _x < n; ++_x) {
+            if(_x == 0 || _x == n - 1) {
+                resbuf[_x] = f(x1 + _x * dx) / 2 * dx; 
+            } else {
+                resbuf[_x ]= f(x1 + _x * dx) * dx; 
+            }
         }
     }
+    size_t j = 0;
+    size_t s = 0;
+    for(size_t i = 0; i < n; ++i) {
+        res += resbuf[j];
+        j += DELTA(dx);
+        if(j * dx > x1 - x0) {
+            s++;
+            j = s;
+        }
+    } 
     return res;
 }
 
@@ -49,12 +68,15 @@ int main(int argc, char** argv)
   }
 
   // Read arguments from input
+  double x0 = 0.0, x1 =0.0, dx = 0.0;
+  uint32_t num_threads = 0;
+  input >> x0 >> x1 >> dx >> num_threads;
 
   // Calculation
-  double res = calc();
+  double res = calc(x0, x1, dx, num_threads);
 
   // Write result
-  output << std::setprecision(15) << res;
+  output << std::setprecision(15) << res << std::endl;
   // Prepare to exit
   output.close();
   input.close();
