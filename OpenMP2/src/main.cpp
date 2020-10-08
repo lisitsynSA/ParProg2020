@@ -2,10 +2,22 @@
 #include <iomanip>
 #include <fstream>
 #include <omp.h>
+#include <stdio.h>
 
 double calc(uint32_t x_last, uint32_t num_threads)
 {
-  return 0;
+  double res = 0;
+  double* a = (double*)malloc(x_last * sizeof(double));;
+
+  #pragma omp parallel for num_threads(num_threads)
+  for (uint32_t i = 0; i < x_last; i++) {
+    a[i] = 1.0 / (i + 1);
+  }
+  for (uint32_t i = x_last; i > 0; i--) {
+    res += a[i - 1];
+  } 
+  free(a);
+  return res;
 }
 
 int main(int argc, char** argv)
