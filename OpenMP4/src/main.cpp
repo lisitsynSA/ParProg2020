@@ -2,10 +2,30 @@
 #include <iomanip>
 #include <fstream>
 #include <omp.h>
+#include <cmath>
+
+
+double inverse_fact(int n)
+{
+  double fact(1.0);
+  for(int i(1); i <= n; ++i)
+  {
+    fact /= double(i);
+  }
+  return fact;
+}
 
 double calc(uint32_t x_last, uint32_t num_threads)
 {
-  return 0;
+  double sum(0.0);
+ 
+    for(int i(0); i < x_last; ++i)
+    {
+      sum += inverse_fact(i);
+    }
+  
+
+  return sum;
 }
 
 int main(int argc, char** argv)
