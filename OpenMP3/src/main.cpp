@@ -9,9 +9,46 @@ double func(double x)
   return sin(x);
 }
 
+enum { TOKEN_NUM = 100 };
+
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
-  return 0;
+  double sum(0.0);
+
+  // allocate store buffer
+
+  double* token = new double[TOKEN_NUM];
+
+  int i(0);
+  int num_steps = (x1 - x0) / dx; // 11
+  std::cout << "num steps " << num_steps << std::endl;
+  int token_size = num_steps / TOKEN_NUM; // 5
+  std::cout << "token size " << token_size << std::endl;
+  for(int i(0); i < token_size * TOKEN_NUM; ++i)
+  {
+    int token_idx = i / token_size; // 0 0 0 0 0 1 1 1 1 1 1 2
+    token[token_idx] += (func(x0 + i * dx) + func(x0 + (i + 1) * dx));
+    // sum += (func(x0 + i * dx) + func(x0 + (i + 1) * dx));
+  }
+  for(int i(token_size * TOKEN_NUM); i < num_steps; ++i)
+    sum += (func(x0 + i * dx) + func(x0 + (i + 1) * dx));
+
+  for(int i(0); i < TOKEN_NUM; ++i)
+  {
+    sum += token[i];
+    // std::cout << token[i] << std::endl;
+  }
+/*  while(x0 < x1)
+  {
+    sum += (func(x1 - dx) + func(x1));
+    x1 -= dx;
+  }*/
+  sum *= dx;
+  sum /= 2.0;
+
+
+  delete token;
+  return sum;
 }
 
 int main(int argc, char** argv)
