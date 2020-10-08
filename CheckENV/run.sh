@@ -1,6 +1,6 @@
 # run.sh <number of repetitions>
 compiler="g++"
-flags="-fopenmp"
+flags="-fopenmp -std=c++11"
 src="./src/main.cpp"
 build="./build"
 exe="$build/task"
