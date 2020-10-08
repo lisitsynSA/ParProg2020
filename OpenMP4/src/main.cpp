@@ -4,6 +4,8 @@
 #include <omp.h>
 #include <cmath>
 
+enum { BORDER_DEN = 10 };
+
 
 double inverse_fact(int n)
 {
@@ -15,16 +17,37 @@ double inverse_fact(int n)
   return fact;
 }
 
+double inverse_fact_from_border(int n, double border_value, int BORDER)
+{
+  double fact(1.0);
+  for(int i(BORDER + 1); i <= n; ++i)
+  {
+    fact /= double(i);
+  }
+  return fact * border_value;
+}
+
 double calc(uint32_t x_last, uint32_t num_threads)
 {
+  int BORDER = x_last / BORDER_DEN;
   double sum(0.0);
+  double border_value(0.0);
  
-    for(int i(0); i < x_last; ++i)
+  for(int i(0); i < x_last; ++i)
+  {
+    double value(0.0);
+    if(i > BORDER)
+      value = inverse_fact_from_border(i, border_value, BORDER);
+    else
+      value = inverse_fact(i);
+    sum += value;
+    if(i == BORDER)
     {
-      sum += inverse_fact(i);
+      border_value = value;
+      std::cout << "border value: " << 1.0 / border_value << std::endl;
     }
+  }
   
-
   return sum;
 }
 
