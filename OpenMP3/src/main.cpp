@@ -76,7 +76,11 @@ int main(int argc, char** argv)
   double res = calc(x0, x1, dx, num_threads);
 
   // Write result
+<<<<<<< HEAD
   output << std::setprecision(15) << res << std::endl;
+=======
+  output << std::setprecision(13) << res << std::endl;
+>>>>>>> 0f2d8930dcb55854e681a8927a619bc0a698c550
   // Prepare to exit
   output.close();
   input.close();
