@@ -3,6 +3,8 @@
 #include <fstream>
 #include <omp.h>
 #include <math.h>
+
+#include <vector>
 /*
 typedef struct {
     double value;
@@ -61,37 +63,45 @@ limd_t limd_init(double value) {
 
 double calc(uint32_t x_last, uint32_t num_threads)
 {
-    double* buf = (double*)calloc(x_last, sizeof(double));
-    int* fbuf = (int*)calloc(x_last, sizeof(int));
-    buf[0] = 1;
-    fbuf[0] = 1;
+    double exp = 0.0;
+    std::vector<double> fact(x_last);
+    for(auto i = next(fact.begin()); i != fact.end(); i = next(i)) {
+        *i = -1;
+    }
+    fact[0] = 1;
+    double c = 0.0;
     #pragma omp parallel num_threads(num_threads)
     {
         #pragma omp for
-        for(size_t i = 0; i < x_last; ++i) {
-            size_t my_f = 1;
-            for(size_t n = i; n > 0; --n) {
-                if(buf[n - 1] < 0) {
-                    fbuf[i] = -1;
-                    buf[i] = 0;
+        for(size_t n = 1; n <= x_last; ++n) {
+            double my_fact = ( 1.0 / n );
+            for(size_t i = n - 1; i >= 0; --i) {
+                if(fact[i] == -1) {
+                    my_fact *= ( 1.0 / i );
+                } else if(fact[i] > 0) {
+                    my_fact *= fact[i];
+                    fact[n] = my_fact;
                     break;
-                }
-                my_f *= n;
-                if(buf[n - 1] > 0) {
-                    my_f *= fbuf[n - 1];
-                    fbuf[i] = my_f;
-                    buf[i] = 1.0 / fbuf[i];
+                } else { // fact[i] < 0
                     break;
                 }
             }
+            //std::cout << "I HAVE " << my_fact << std::endl;
+            /*
+            #pragma omp critical 
+            {
+                double y = my_fact - c;
+                double t = exp + y;
+                c = (t - exp) - y;
+                exp = t;
+            }*/
         }
     }
-
-    double res = 0; 
-    for(size_t i = x_last; i > 0; --i) {
-        res += buf[i - 1];
+    
+    for(auto i = fact.rbegin(); i != fact.rend(); i = next(i)) {
+        exp += *i;
     }
-    return res;
+    return exp;
 }
 
 int main(int argc, char** argv)
