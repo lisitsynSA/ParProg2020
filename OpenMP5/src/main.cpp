@@ -188,6 +188,7 @@ int main(int argc, char** argv)
     for (uint32_t x = 0; x < xSize; x++)
     {
       input >> inputFrame[y*xSize + x];
+      inputFrame[y*xSize + x] -= '0';
     }
   }
 
@@ -200,7 +201,8 @@ int main(int argc, char** argv)
   {
     for (uint32_t x = 0; x < xSize; x++)
     {
-    output << " " << outputFrame[y*xSize + x];
+      outputFrame[y*xSize + x] += '0';
+      output << " " << outputFrame[y*xSize + x];
     }
     output << "\n";
   }
