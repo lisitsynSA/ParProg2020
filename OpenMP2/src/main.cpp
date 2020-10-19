@@ -5,7 +5,18 @@
 
 double calc(uint32_t x_last, uint32_t num_threads)
 {
-  return 0;
+  double res = 0.0;
+  double * elems = new double[x_last];
+  #pragma omp parallel num_threads(num_threads)
+  {
+    #pragma omp for
+    for(int i = x_last; i >= 1; i--)
+      elems[i - 1] = 1.0 / i;
+  }
+  for(int i = x_last - 1; i >= 0; i--)
+    res += elems[i];
+  delete [] elems;
+  return res;
 }
 
 int main(int argc, char** argv)
