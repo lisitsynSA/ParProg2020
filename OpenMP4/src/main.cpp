@@ -5,7 +5,7 @@
 
 enum BORDERS
 {
-  N_of_borders = 6,
+  N_of_borders = 100,
   Border_gate = 4
 };
 
