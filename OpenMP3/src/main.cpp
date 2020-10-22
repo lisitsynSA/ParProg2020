@@ -15,27 +15,7 @@ double func(double x)
 
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
-  double res = 0.0;
-  double * part_sum = new double[NUM_PLACES];
-  int n_of_steps = (x1 - x0) / dx;
-  int n_of_elems = n_of_steps / NUM_PLACES;
-  #pragma omp parallel num_threads(num_threads)
-  {
-    #pragma omp for
-    for(int i = 0; i < n_of_elems * NUM_PLACES; i++)
-    {
-      int id = i / n_of_elems;
-      part_sum[id] += func(x0 + i * dx);
-    }
-  }
-  for(int i = n_of_elems * NUM_PLACES; i < n_of_steps; i++)
-    res += func(x0 + i * dx);
-  for(int i = 0; i < NUM_PLACES; i++)
-    res += part_sum[i];
-  res *= dx;
-  res += func(x1) * (x1 - x0 - n_of_steps * dx);
-  delete [] part_sum;
-  return res;
+  return 0;
 }
 
 int main(int argc, char** argv)

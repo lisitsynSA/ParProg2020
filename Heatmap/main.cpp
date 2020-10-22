@@ -12,37 +12,6 @@ long int ReadArg(char * str);
 
 int main(int argc, char** argv)
 {
-  // Check arguments
-  if (argc != 3)
-  {
-    std::cout << "[Error] Usage <n_of_external_processes> <n_of_internal_processes>\n";
-    return 1;
-  }
-
-  int n_of_external_threads = ReadArg(argv[1]);
-  int n_of_internal_threads = ReadArg(argv[2]);
-
-  // enables to run nested parallelism
-  omp_set_nested(true);
-  int res = 0;
-  double start = omp_get_wtime();
-
-  // start of parallel code
-  #pragma omp parallel num_threads(n_of_external_threads)
-  {
-    for(int i = 0; i < 100; ++i)
-    {
-      res += create_threads(n_of_internal_threads);
-    }
-  }
-
-  // end of parallel code
-
-  double end = omp_get_wtime();
-
-  double delta = end - start;
-  std::cout << delta << std::endl;
-
   return 0;
 }
 
