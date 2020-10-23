@@ -25,15 +25,20 @@ fi
 
 # Process options and check for some errors
 
-  while getopts ":fv" opt; do
+  while getopts ":fvt:" opt; do
     case ${opt} in
       f ) FORCE=1
         ;;
       v ) VERBOSE=1
         ;;
-      \? ) echo "Usage: run.sh [-f] [-v] [iternum]"
+      t ) TESTS+="tests/$OPTARG "
+          echo "TESTS= '$TESTS'"
+        ;;
+      \? ) echo "Usage: run.sh [-f] [-v] [-t TESTNAME] [iternum]"
            echo "       -f:      disable paranoid errors"
            echo "       -v:      verbose"
+           echo "       -t:      only run specific test. This "
+           echo "                option can be specified multiple times"
            echo "       iternum: number of times to run test"
            echo "                attempting to find a race"
            exit 0
@@ -113,7 +118,10 @@ fi
   SUCCESS_TESTS=()
   FAIL_TESTS=()
 
-  for CURTESTDIR in $TESTSDIR/*; do
+  if [ -z "$TESTS" ]; then
+    TESTS=$TESTSDIR/*
+  fi
+  for CURTESTDIR in $TESTS; do
     CURTEST="$(basename $CURTESTDIR)"
 
     pre_target "TEST $CURTEST"
