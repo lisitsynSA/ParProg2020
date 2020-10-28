@@ -26,9 +26,9 @@ double calc(double x0, double x1, double dx, uint32_t num_threads)
   int token_size = num_steps / TOKEN_NUM; // 5
   // std::cout << "token size " << token_size << std::endl;
 
+  // int token_idx = 0;
   #pragma omp parallel num_threads(num_threads)
   {
-    #pragma omp for
     for(int i = (1); i < token_size * TOKEN_NUM; ++i)
     {
       int token_idx = i / token_size; // 0 0 0 0 0 1 1 1 1 1 1 2
