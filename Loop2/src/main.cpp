@@ -5,18 +5,71 @@
 #include <unistd.h>
 #include <cmath>
 
-void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
-{
-  if (rank == 0 && size > 0)
-  {
-    for (uint32_t y = 0; y < ySize - 1; y++)
-    {
-      for (uint32_t x = 3; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
-      }
+#include <cstdlib>
+
+#define ROOT 0
+// auntidep
+// y = 1; y < ySize;
+// x = 0; y < xSize - 3
+//arr[(y - 1)*xSize + (x + 3)] = sin(0.00001*arr[y*xSize + x]);
+
+void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size) {
+    int32_t step = 0;
+    int32_t* range = NULL;
+    int32_t* displace = NULL;
+    
+    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    
+    if(rank == ROOT) {        
+        uint32_t y_step = ceil(ySize / (1.0 * size)) + 1;
+        uint32_t prev_range = 0;
+        
+        range = (int32_t*)calloc(size, sizeof(int32_t));
+        displace = (int32_t*)calloc(size, sizeof(int32_t));
+        // реализуем перекрытие
+        for(int send_rank = 0; send_rank < size; ++send_rank) {
+            // We will send start_y, step, xSize and part of arr
+            uint32_t real_step = std::min(y_step, ySize - prev_range);
+            range[send_rank] = real_step * xSize;
+            displace[send_rank] = prev_range * xSize;
+            prev_range += y_step - 1; 
+        }
     }
-  }
+    MPI_Scatter(range, 1, MPI_INT,
+            &step, 1, MPI_INT,
+            ROOT, MPI_COMM_WORLD);
+    
+
+    double* my_copy = (double*) calloc(step, sizeof(double));
+    MPI_Scatterv(arr, range, displace, MPI_DOUBLE, 
+            my_copy, step, MPI_DOUBLE, 
+            ROOT, MPI_COMM_WORLD);    
+    
+    if(rank == ROOT) {
+        for(int i = 0; i < size; ++i) {
+            range[i] -= (range[i] == 0) ? 0 : xSize;
+        }
+    }
+
+    if(step != 0) {
+        for(uint32_t y = 0; y < step / xSize - 1; ++y) {
+            for(uint32_t x = 3; x < xSize; ++x) {
+                my_copy[y*xSize + x] = sin(0.00001*my_copy[(y + 1) * xSize + (x - 3)]);
+            }
+        }
+    }
+ 
+    MPI_Gatherv(my_copy, (step == 0)?0:step - xSize, MPI_DOUBLE, 
+            arr, range, displace, MPI_DOUBLE,
+            ROOT, MPI_COMM_WORLD);
+
+    if(rank == ROOT) {
+
+        free(range);
+        free(displace);
+    }
+    free(my_copy); 
 }
 
 int main(int argc, char** argv)
