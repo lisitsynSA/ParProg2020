@@ -107,16 +107,12 @@ void DrawField( uint32_t xSize, uint32_t ySize, uint8_t** field)
 /**
  * Переводит матрицу в линейный массив
  */
-uint8_t* ConvertFrom2Dto1D( uint32_t xSize, uint32_t ySize, uint8_t** input_frame)
+inline void ConvertFrom2Dto1D( uint32_t xSize, uint32_t ySize, uint8_t** input_frame, uint8_t* output_frame)
 {
     
-    uint8_t* temp_frame = (uint8_t*)calloc( ySize * xSize, sizeof(uint8_t));
-
     for ( uint32_t i = 0; i < ySize; i++)
 	for( uint32_t j = 0; j < xSize; j++)
-	    temp_frame[i * xSize + j] = input_frame[i][j];
-
-    return ( temp_frame);
+	    output_frame[i * xSize + j] = input_frame[i][j];
 }
 
 /**
@@ -143,7 +139,6 @@ int NumOfNeighbours( uint32_t xSize, uint32_t ySize, uint32_t x, uint32_t y, uin
 		if ( ( input_frame[x_shifted][y_shifted] == ALIVE))
 		{
 		    neighbours_num++;
-		    DEBUG_PRINT( printf("\t [%d, %d] -> [%d, %d]\n", i, j, x_shifted, y_shifted))
 		}
 	    }
 	}
@@ -154,7 +149,7 @@ int NumOfNeighbours( uint32_t xSize, uint32_t ySize, uint32_t x, uint32_t y, uin
 }
 
 
-uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_threads, uint8_t* inputFrame)
+void calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_threads, uint8_t* inputFrame, uint8_t* outputFrame)
 {
     omp_set_dynamic( 0);
     omp_set_num_threads( num_threads);
@@ -167,15 +162,9 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
         result_frame[i] = (uint8_t*)calloc( ySize, sizeof(uint8_t));
     }
     
-    if( iterations == 0)
-	result_frame = temp_frame;
-    else
-    {
-	/* Для каждой ячейки необходимо проверить соседние и посчитать количество соседей */
-	for ( uint32_t k = 0; k < iterations; k++)
-	{
-	    DEBUG_PRINT( printf("Iteration: %d\n", k))
-	    
+    /* Для каждой ячейки необходимо проверить соседние и посчитать количество соседей */
+    for ( uint32_t k = 0; k < iterations; k++)
+	{	    
 	    #pragma omp parallel for num_threads( num_threads)
 	    for ( uint32_t i = 0; i < xSize; i++)
 	    {
@@ -184,8 +173,7 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
 		{
 		    int neighbour_num = NumOfNeighbours( xSize, ySize, i, j, temp_frame);
 		    
-		    DEBUG_PRINT( printf( "neighbour num: %d [%d, %d]\n", neighbour_num, i ,j))
-		    /* В пустой клетке, рядом с которой есть ровно 3 соседа, зарождается жизнь */
+    		    /* В пустой клетке, рядом с которой есть ровно 3 соседа, зарождается жизнь */
 		    if ( (  neighbour_num == 3) && (temp_frame[i][j] == DEAD))
 			result_frame[i][j] = ALIVE;
 		    else
@@ -196,20 +184,15 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
 			result_frame[i][j] = DEAD;
 		}
 	    }
-	    
-	    DEBUG_PRINT( DrawField( xSize, ySize, result_frame))
+
 	    #pragma omp parallel for num_threads( num_threads)
 	    COPY_ARRAY( result_frame, temp_frame);
-	    #pragma omp parallel for num_threads( num_threads)
-	    SET_ARRAY_ZERO( result_frame);
-	    DEBUG_PRINT( DrawField( xSize, ySize, temp_frame))
 	}
 
 
-    }
-       return ( ConvertFrom2Dto1D( xSize, ySize, temp_frame));
-    
-/*
+    ConvertFrom2Dto1D( xSize, ySize, temp_frame, outputFrame);
+
+    #pragma omp parallel for num_threads( num_threads)
     for ( uint32_t i = 0; i < xSize; i++)
     {
 	free( temp_frame[i]);
@@ -218,7 +201,7 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
 
     free( temp_frame);
     free( result_frame);
-*/    
+ 
 }
 
 int main(int argc, char** argv)
@@ -263,7 +246,7 @@ int main(int argc, char** argv)
 
 
   // Calculation
- outputFrame = calc(xSize, ySize, iterations, num_threads, inputFrame);
+  calc(xSize, ySize, iterations, num_threads, inputFrame, outputFrame);
 
   // Write result
   for (uint32_t y = 0; y < ySize; y++)
