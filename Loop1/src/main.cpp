@@ -5,18 +5,49 @@
 #include <unistd.h>
 #include <cmath>
 
+void sum(double* res, uint32_t xSize, uint32_t ySize) {
+	for (uint32_t y = 0; y < ySize; y++) {
+	  for (uint32_t x = 0; x < xSize; x++) {
+	    res[y*xSize + x] = sin(0.00001*res[y*xSize + x]);
+	  }
+	}
+}
+
+
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-  if (rank == 0 && size > 0)
-  {
-    for (uint32_t y = 0; y < ySize; y++)
-    {
-      for (uint32_t x = 0; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[y*xSize + x]);
-      }
-    }
-  }
+	MPI_Bcast(&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD);	
+	MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD);	
+	uint32_t loc_ySize = ySize / size;
+	if (rank < (int)ySize % size) {
+		loc_ySize++;
+	}
+	double* res = (double*)malloc(loc_ySize * xSize * sizeof(double));
+
+	if (rank == 0) {
+		int* displs = (int*)malloc(size * sizeof(int));
+		int* sendcounts = (int*)malloc(size * sizeof(int));
+		int offset = 0;
+		for (int i = 0; i < size; i++) {
+			displs[i] = offset;
+			sendcounts[i] = ySize / size;
+			if (i < (int)ySize % size) {
+				sendcounts[i]++;
+			}
+			sendcounts[i] *= xSize;
+			offset += sendcounts[i];
+		}
+		MPI_Scatterv(arr, sendcounts, displs, MPI_DOUBLE, res, loc_ySize * xSize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		sum(res, xSize, loc_ySize);
+		MPI_Gatherv(res, loc_ySize * xSize, MPI_DOUBLE, arr, sendcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		free(displs);
+		free(sendcounts);
+	} else {
+		MPI_Scatterv(NULL, NULL, NULL, 0, res, loc_ySize * xSize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		sum(res, xSize, loc_ySize);
+		MPI_Gatherv(res, loc_ySize * xSize, MPI_DOUBLE, NULL, NULL, NULL, 0, 0, MPI_COMM_WORLD);
+	}
+	free(res);
 }
 
 int main(int argc, char** argv)
