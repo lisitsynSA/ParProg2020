@@ -3,8 +3,69 @@
 #include <fstream>
 #include <omp.h>
 
-#define DEAD '0'
-#define ALIVE '1'
+/* Константы для игрового поля */
+#define DEAD 0
+#define ALIVE 1
+
+/* Флаги для включения и отключения функций */
+#define ENABLED 1
+#define DISABLED 0
+
+/* Включение режима отладочной печати */
+#define DEBUG_PRINT_INIT DISABLED
+
+/* Макрос отладочной печати */
+#define DEBUG_PRINT( sequence) do{ if( DEBUG_PRINT_INIT) (sequence);} while(0);
+
+/* Распространненый цикл */
+#define FOR_ALL_ARRAY\
+ for ( uint32_t i = 0; i < xSize; i++)\
+	for( uint32_t j = 0; j < ySize; j++)\
+
+/* Заполнение массива 0 */
+#define SET_ARRAY_ZERO( array)\
+    FOR_ALL_ARRAY\
+   	    ( array)[i][j] = 0;
+
+/* Копирование одного массива в другой */
+#define COPY_ARRAY( src, dst)\
+    FOR_ALL_ARRAY\
+	( dst)[i][j] = ( src)[i][j];
+
+/**
+ * Выполняет циклический сдвиг по координатам.
+ *
+ * Функция void, так как нам необходимо вернуть 2 значения.
+ */
+void CycleShift( uint32_t xSize_t, uint32_t ySize_t, int* x, int* y)
+{
+    int xSize = xSize_t;
+    int ySize = ySize_t;
+
+    /* Если x за пределами поля, тогда выполняем циклический сдвиг по x*/ 
+    if ( !( ( *x <= xSize) && ( *x >= 0)))
+    {
+	if ( *x < 0)
+	    *x = xSize;
+	else
+	    if ( *x >= xSize)
+		*x = 0;
+    }
+    
+    /* Если y за пределами поля, тогда выполняем циклический сдвиг по y */
+    if( !(( *y <=  ySize) && ( *y >= 0)))
+    {
+	if ( *y < 0)
+		*y = ySize;
+	else
+	    if ( *y >= ySize)
+		*y = 0;
+
+    }
+    
+    /* Иначе выполняем циклический сдвиг в зависимости от того, на сколько отличаются координаты от границы */
+
+    }
 
 /**
  * Конвертирует массив в 2D для более удобной работы
@@ -13,7 +74,7 @@
  */
 uint8_t** ConvertFrom1Dto2D( uint32_t xSize, uint32_t ySize, uint8_t* input_frame)
 {
-    uint8_t** temp_frame = (uint8_t**)calloc( ySize, sizeof(uint8_t*));
+    uint8_t** temp_frame = (uint8_t**)calloc( xSize, sizeof(uint8_t*));
     for ( uint32_t i = 0; i < xSize; i++)
     {
         temp_frame[i] = (uint8_t*)calloc( ySize, sizeof(uint8_t));
@@ -27,18 +88,31 @@ uint8_t** ConvertFrom1Dto2D( uint32_t xSize, uint32_t ySize, uint8_t* input_fram
 }
 
 /**
+ * Функция для отладки. Рисует промежуточный результат
+ */
+void DrawField( uint32_t xSize, uint32_t ySize, uint8_t** field)
+{
+    printf("\n");
+     for ( uint32_t i = 0; i < xSize; i++)
+	{
+	    for ( uint32_t j = 0; j < ySize; j++)
+	    {
+		printf("%d  ", field[i][j]);
+	    }
+	    printf("\n");
+	}
+     printf("\n");
+}
+
+/**
  * Переводит матрицу в линейный массив
  */
-uint8_t* ConvertFrom2Dto1D( uint32_t xSize, uint32_t ySize, uint8_t** input_frame)
+inline void ConvertFrom2Dto1D( uint32_t xSize, uint32_t ySize, uint8_t** input_frame, uint8_t* output_frame)
 {
     
-    uint8_t* temp_frame = (uint8_t*)calloc( ySize * xSize, sizeof(uint8_t));
-
     for ( uint32_t i = 0; i < ySize; i++)
 	for( uint32_t j = 0; j < xSize; j++)
-	    temp_frame[i * xSize + j] = input_frame[i][j];
-
-    return ( temp_frame);
+	    output_frame[i * xSize + j] = input_frame[i][j];
 }
 
 /**
@@ -47,66 +121,39 @@ uint8_t* ConvertFrom2Dto1D( uint32_t xSize, uint32_t ySize, uint8_t** input_fram
 int NumOfNeighbours( uint32_t xSize, uint32_t ySize, uint32_t x, uint32_t y, uint8_t** input_frame)
 {
     int neighbours_num = 0;
+
     xSize--;
     ySize--;
-    /* Необходимо вокруг посмотреть 8 клеток, если там, кто-то есть, то количество соседей увеличиваем на 1 */
-
-    /* Левый верхний угол */
-    if ( ( x >= 1) && ( y >= 1))
-    	if ( input_frame[x - 1][y - 1] == ALIVE)
-	    neighbours_num++;
     
-    /* Верхний средний */
-    if ( x >= 1)
-	if ( input_frame[x - 1][y] == ALIVE)
-	    neighbours_num++;
+    /* Необходимо вокруг посмотреть 8 клеток, если там, кто-то есть, то количество соседей увеличиваем на 1 */
+    for ( int i = -1; i <= 1; i++)
+    {
+	for ( int j = -1; j <= 1; j++)
+	{
+	    int x_shifted = x + i, 
+		y_shifted = y + j;
 
-    /* Правый сверху */
-    if ( ( x >= 1) && ( y <= ( ySize - 1)))
-	if ( input_frame[x - 1][y + 1] == ALIVE)
-	     neighbours_num++;
+	    CycleShift( xSize, ySize, &x_shifted, &y_shifted);
+	    if ( !( ( i == 0) && ( j == 0)))
+	    {
+		if ( ( input_frame[x_shifted][y_shifted] == ALIVE))
+		{
+		    neighbours_num++;
+		}
+	    }
+	}
+    }
 
-    /* Слева средний */
-    if ( y >= 1)
-	if ( input_frame[x][y - 1] == ALIVE)
-	    neighbours_num++;
-
-    /* Справа средний */
-    if ( y <= ( ySize - 1))
-	if ( input_frame[x][y + 1] == ALIVE)
-	    neighbours_num++;
-
-    /* Слева нижний */
-    if ( ( x <= ( xSize - 1)) && ( y >= 1))
-	if ( input_frame[x + 1][y - 1] == ALIVE) 
-	    neighbours_num++;
-
-    /* Нижний средний */
-    if ( x <= ( xSize - 1))
-	if ( input_frame[x + 1][y] == ALIVE)
-	    neighbours_num++;
-
-    /* Справа нижний */      
-    if ( ( y <= ( ySize - 1)) && ( x <= (xSize - 1)))
-	if ( input_frame[x + 1][y + 1] == ALIVE)
-	    neighbours_num++;
-
+ 
     return ( neighbours_num);
 }
 
 
-uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_threads, uint8_t* inputFrame)
+void calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_threads, uint8_t* inputFrame, uint8_t* outputFrame)
 {
-    if (iterations == 0)
-    {
-	return inputFrame;
-    }
-
-
     omp_set_dynamic( 0);
     omp_set_num_threads( num_threads);
 
-    /* Для каждой ячейки необходимо проверить соседние и посчитать количество соседей */
     uint8_t** temp_frame = ConvertFrom1Dto2D( xSize, ySize, inputFrame);
    
     uint8_t** result_frame = (uint8_t**)calloc( xSize, sizeof(uint8_t*));
@@ -115,32 +162,37 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
         result_frame[i] = (uint8_t*)calloc( ySize, sizeof(uint8_t));
     }
     
-    //#pragma omp parallel for num_threads( num_threads) 
+    /* Для каждой ячейки необходимо проверить соседние и посчитать количество соседей */
     for ( uint32_t k = 0; k < iterations; k++)
-    {
-	for ( uint32_t i = 0; i < xSize; i++)
-	{
-	    for ( uint32_t j = 0; j < ySize; j++)
+	{	    
+	    #pragma omp parallel for num_threads( num_threads)
+	    for ( uint32_t i = 0; i < xSize; i++)
 	    {
-		/* В пустой клетке, рядом с которой есть ровно 3 соседа, зарождается жизнь */
-		if ( ( NumOfNeighbours( xSize, ySize, i, j, temp_frame) == 3) && (temp_frame[i][j] == DEAD))
-		    result_frame[i][j] = ALIVE;
-		else
-		/* Если у живой клетки 2 или 3 соседа, то она продолжает жить */
-		if ( ( ( NumOfNeighbours( xSize, ySize, i, j, temp_frame) == 2) || ( NumOfNeighbours( xSize, ySize, i, j, temp_frame) == 3)) && (temp_frame[i][j] == ALIVE))
-		    result_frame[i][j] = ALIVE;
-		else
-		    result_frame[i][j] = DEAD;
+		#pragma omp parallel for num_threads( num_threads)
+		for ( uint32_t j = 0; j < ySize; j++)
+		{
+		    int neighbour_num = NumOfNeighbours( xSize, ySize, i, j, temp_frame);
+		    
+    		    /* В пустой клетке, рядом с которой есть ровно 3 соседа, зарождается жизнь */
+		    if ( (  neighbour_num == 3) && (temp_frame[i][j] == DEAD))
+			result_frame[i][j] = ALIVE;
+		    else
+		    /* Если у живой клетки 2 или 3 соседа, то она продолжает жить */
+		    if ( ( ( neighbour_num == 2) || ( neighbour_num == 3)) && (temp_frame[i][j] == ALIVE))
+			result_frame[i][j] = ALIVE;
+		    else
+			result_frame[i][j] = DEAD;
+		}
 	    }
+
+	    #pragma omp parallel for num_threads( num_threads)
+	    COPY_ARRAY( result_frame, temp_frame);
 	}
 
-	temp_frame = result_frame;
-    }
 
+    ConvertFrom2Dto1D( xSize, ySize, temp_frame, outputFrame);
 
-    return ( ConvertFrom2Dto1D( xSize, ySize, result_frame));
-    
-/*
+    #pragma omp parallel for num_threads( num_threads)
     for ( uint32_t i = 0; i < xSize; i++)
     {
 	free( temp_frame[i]);
@@ -149,7 +201,7 @@ uint8_t* calc(uint32_t xSize, uint32_t ySize, uint32_t iterations, uint32_t num_
 
     free( temp_frame);
     free( result_frame);
-    */
+ 
 }
 
 int main(int argc, char** argv)
@@ -188,27 +240,29 @@ int main(int argc, char** argv)
     for (uint32_t x = 0; x < xSize; x++)
     {
       input >> inputFrame[y*xSize + x];
+      inputFrame[y*xSize + x] -= '0';
     }
   }
 
 
   // Calculation
- outputFrame = calc(xSize, ySize, iterations, num_threads, inputFrame);
+  calc(xSize, ySize, iterations, num_threads, inputFrame, outputFrame);
 
   // Write result
   for (uint32_t y = 0; y < ySize; y++)
   {
     for (uint32_t x = 0; x < xSize; x++)
     {
-    output << " " << outputFrame[y*xSize + x];
+      outputFrame[y*xSize + x] += '0';
+      output << " " << outputFrame[y*xSize + x];
     }
     output << "\n";
   }
-#if 0
+
   // Prepare to exit
   delete outputFrame;
   delete inputFrame;
-#endif  
+ 
   output.close();
   input.close();
   return 0;
