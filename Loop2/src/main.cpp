@@ -5,17 +5,61 @@
 #include <unistd.h>
 #include <cmath>
 
+void sum(double* res, uint32_t xSize, uint32_t ySize) {
+  for (uint32_t y = 0; y < ySize - 1; y++) {
+    for (uint32_t x = 3; x < xSize; x++) {
+      res[y*xSize + x] = sin(0.00001*res[(y+1)*xSize + x - 3]);
+    }
+  }
+}
+
+
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-  if (rank == 0 && size > 0)
-  {
-    for (uint32_t y = 0; y < ySize - 1; y++)
-    {
-      for (uint32_t x = 3; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
+  MPI_Status status;
+  MPI_Bcast(&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+  MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+  uint32_t loc_ySize = ySize / size;
+  if (rank < (int)(ySize % size)){
+    loc_ySize++;
+  }
+  if (rank == size - 1) {
+    loc_ySize--;
+  }
+  if (rank == 0) {
+    uint32_t send_ySize = loc_ySize;
+    uint32_t send_yAddr = loc_ySize;
+    for (int i = 1; i < size; i++) {
+      if (i == (int)(ySize % size)) {
+        send_ySize--;
       }
+      if (i == size - 1) {
+        send_ySize--;
+      }
+      MPI_Send(&arr[send_yAddr * xSize], (send_ySize + 1) * xSize, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+      send_yAddr += send_ySize;
     }
+  } else {
+    arr = (double*) malloc((loc_ySize + 1) * xSize * sizeof(double));
+    MPI_Recv(arr, (loc_ySize + 1) * xSize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
+  }
+  sum(arr, xSize, loc_ySize + 1);
+  if (rank == 0) {
+    uint32_t recv_ySize = loc_ySize;
+    uint32_t recv_yAddr = loc_ySize;
+    for (int i = 1; i < size; i++) {
+      if (i == (int)(ySize % size)) {
+        recv_ySize--;
+      }
+      if (i == size - 1) {
+        recv_ySize--;
+      }
+      MPI_Recv(&arr[recv_yAddr * xSize], recv_ySize * xSize, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &status);
+      recv_yAddr += recv_ySize;
+    }
+  } else {
+    MPI_Send(arr, loc_ySize * xSize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    free(arr);
   }
 }
 
