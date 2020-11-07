@@ -59,6 +59,7 @@ void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
     }
   } else {
     MPI_Send(arr, loc_ySize * xSize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    free(arr);
   }
 }
 
