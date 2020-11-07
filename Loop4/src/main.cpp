@@ -8,9 +8,7 @@
 void calc(double* arr, uint32_t zSize, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
   MPI_Status status;
-  MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-  MPI_Bcast(&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-  MPI_Bcast(&zSize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+
   uint32_t num_of_tasks, arr_size = 0, arr_addr = 0;
 
   if (rank == 0) {
@@ -99,6 +97,8 @@ void calc(double* arr, uint32_t zSize, uint32_t ySize, uint32_t xSize, int rank,
         }
       }
     }
+    free(added);
+    free(new_arr);
   } else {
     MPI_Recv(&num_of_tasks, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
     MPI_Recv(&arr_size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
@@ -106,12 +106,6 @@ void calc(double* arr, uint32_t zSize, uint32_t ySize, uint32_t xSize, int rank,
     arr = (double *) malloc(arr_size * sizeof(double));
     MPI_Recv(tasks, num_of_tasks, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
     MPI_Recv(arr, arr_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
-
-    std::ofstream output("output" + std::to_string(rank) + ".txt");
-    for (uint32_t z = 0; z < arr_size; z++) {
-      output << " " << arr[z];
-    }
-    output.close();
     for (int i = 0; i < (int)num_of_tasks; i++) {
       for (int j = 0; j < (int)(tasks[i] - 1); j++) {
         arr[j + arr_addr + 1] = sin(arr[j + arr_addr]); 
@@ -119,6 +113,7 @@ void calc(double* arr, uint32_t zSize, uint32_t ySize, uint32_t xSize, int rank,
       arr_addr += tasks[i];
     }
     MPI_Send(arr, arr_size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    free(arr);
   }
 }
 
