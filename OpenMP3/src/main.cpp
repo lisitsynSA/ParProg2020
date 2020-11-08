@@ -11,7 +11,13 @@ double func(double x)
 
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
-  return 0;
+  int steps_num = round((x1 - x0) / dx);
+  double sum = (- func(x0) / 2.0 + func(x0 + steps_num * dx) / 2.0) * dx;  //<-*dx
+  #pragma omp parallel for num_threads(num_threads) reduction(+:sum)
+  for(int i = 0; i < steps_num; ++i)
+    sum += func(x0 + i * dx) * dx;  //<--*dx
+  //sum *= dx; //At first, i used this, and without "* dx" in marked "<--*dx" strings. But tests 06 and 07 were failed (1.99999999 != 2)
+  return sum;
 }
 
 int main(int argc, char** argv)
