@@ -3,9 +3,15 @@
 #include <fstream>
 #include <omp.h>
 
-double calc(uint32_t x_last, uint32_t num_threads)
-{
-  return 0;
+double calc(uint32_t x_last, uint32_t num_threads) //Fails at TEST04 in last number(sometimes pre-last number).
+{                                                  //The strange thing is that my sum little bigger than test sum.
+  double sum = 0.0;                                //May be parallel calc is more accuracy?
+  #pragma omp parallel for num_threads(num_threads) reduction(+:sum)
+  for(uint32_t i = x_last; i > 0; i--)
+  {
+    sum += 1.0 / i;
+  }
+  return sum;
 }
 
 int main(int argc, char** argv)
