@@ -5,80 +5,61 @@
 #include <unistd.h>
 #include <cmath>
 
-void sum(double* arr, uint32_t xSize, uint32_t ySize, uint32_t start, int& iter) {
-  iter = 0;
-  for (uint32_t y = 4 + start; y < ySize; y += 4) {
-    iter++;
-    for (uint32_t x = 0; x < xSize; x++) {
-      arr[y*xSize + x] = sin(arr[(y - 4)*xSize + x]);
-    }
-  }
+void sum(double* arr, uint32_t xSize, uint32_t ySize) {
+	for (uint32_t x = 0; x < xSize; x++) {
+		for (uint32_t y = 4; y < ySize; y++) {
+	  		arr[x*ySize + y] = sin(arr[x*ySize + (y-4)]);
+		}
+	}
 }
 
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-  if (rank < 4) {
-    MPI_Status status;
-    MPI_Bcast(&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-    MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-    uint32_t loc_ySize = 0, loc_yAddr = 0;
+	MPI_Bcast(&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+	MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+	uint32_t loc_xSize = xSize / size;
+	if (rank < (int)xSize % size) {
+		loc_xSize++;
+	}
+	double* res = (double*)malloc(loc_xSize * ySize * sizeof(double));
 
-    if (rank ==0) {
-      loc_yAddr = 0;
-      loc_ySize = 4 / size;
-      if (rank < (int)(4 % size))
-        loc_ySize++;
-      uint32_t send_ySize = loc_ySize;
-      uint32_t send_yAddr = loc_ySize;
-      if (size >= 4) {
-        size = 4;
-      }
+	if (rank == 0) {
+		double* arr_T = (double *)malloc(ySize * xSize * sizeof(double));
+		for(int i = 0; i < (int)ySize; i++) {
+			for(int j = 0; j < (int)xSize; j++) {
+				arr_T[j*ySize + i] = arr[i*xSize + j];
+			}
+		}
 
-      for (int i = 1; i < size; i++) {
-        if (i == (int)(4 % size)) {
-          send_ySize--;
-        } 
-        MPI_Send(&send_ySize, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
-        MPI_Send(&send_yAddr, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
-        MPI_Send(&arr[send_yAddr * xSize], send_ySize * xSize, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
-        send_yAddr += send_ySize;
-      }
-    } else {
-      arr = (double*) malloc(ySize * xSize * sizeof(double));
-      MPI_Recv(&loc_ySize, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
-      MPI_Recv(&loc_yAddr, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
-      MPI_Recv(&arr[loc_yAddr * xSize], loc_ySize * xSize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
-    }
-    int iter;
-
-    for (uint32_t i = 0; i < loc_ySize; i++) {
-      sum(arr, xSize, ySize, loc_yAddr + i, iter);
-    }
-
-
-    if (rank == 0) {
-      uint32_t send_ySize = loc_ySize;
-      uint32_t send_yAddr = loc_ySize;
-      for (int i = 1; i < size; i++) {
-        if (i == (int)(4 % size)) {
-          send_ySize--;
-        } 
-        MPI_Recv(&iter, 1, MPI_INT, i, 0, MPI_COMM_WORLD, &status);
-        MPI_Datatype floattype;
-        MPI_Type_vector(iter, xSize * send_ySize, xSize * 4, MPI_DOUBLE, &floattype);
-        MPI_Type_commit(&floattype);
-        MPI_Recv(&arr[(send_yAddr + 4) * xSize], 1, floattype, i, 0, MPI_COMM_WORLD, &status);
-        send_yAddr += send_ySize;
-      }
-    } else {
-      MPI_Datatype floattype;
-      MPI_Type_vector(iter, xSize * loc_ySize, xSize * 4, MPI_DOUBLE, &floattype);
-      MPI_Type_commit(&floattype);
-      MPI_Send(&iter, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-      MPI_Send(&arr[(loc_yAddr + 4) * xSize], 1, floattype, 0, 0, MPI_COMM_WORLD);
-    }
-
-  }
+		int* displs = (int*)malloc(size * sizeof(int));
+		int* sendcounts = (int*)malloc(size * sizeof(int));
+		int offset = 0;
+		for (int i = 0; i < size; i++) {
+			displs[i] = offset;
+			sendcounts[i] = xSize / size;
+			if (i < (int)xSize % size) {
+				sendcounts[i]++;
+			}
+			sendcounts[i] *= ySize;
+			offset += sendcounts[i];
+		}
+		MPI_Scatterv(arr_T, sendcounts, displs, MPI_DOUBLE, res, loc_xSize * ySize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		sum(res, loc_xSize, ySize);
+		MPI_Gatherv(res, loc_xSize * ySize, MPI_DOUBLE, arr_T, sendcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		for(int i = 0; i < (int)xSize; i++) {
+			for(int j = 0; j < (int)ySize; j++) {
+				arr[j*xSize + i] = arr_T[i*ySize + j];
+			}
+		}
+		free(displs);
+		free(sendcounts);
+		free(arr_T);
+	} else {
+		MPI_Scatterv(NULL, NULL, NULL, 0, res, loc_xSize * ySize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		sum(res, loc_xSize, ySize);
+		MPI_Gatherv(res, loc_xSize * ySize, MPI_DOUBLE, NULL, NULL, NULL, 0, 0, MPI_COMM_WORLD);
+	}
+	free(res);
 }
 
 int main(int argc, char** argv)
