@@ -9,9 +9,36 @@ double func(double x)
   return sin(x);
 }
 
+double trapezoid(double x0, double x1, double dx) {
+  return dx * (func(x0) + func(x1)) * 0.5;
+}
+
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
-  return 0;
+  int num_of_dots = (x1 - x0) / dx + 1;
+  double* dots = (double*)malloc(num_of_dots * sizeof(double));
+  double res = 0.0;
+  double trap = 0.0;
+  double c = 0.0;
+  double y = 0.0;
+  double t = 0.0;
+  #pragma omp parallel num_threads(num_threads) 
+  {
+    #pragma omp for 
+    for (int i = 0; i < num_of_dots; i++) {
+        dots[i] = x0 + i * dx;
+    }
+    #pragma omp for reduction(+:res) private(y, t, c, trap)
+    for (int i = 0; i < num_of_dots - 1; i++) { 
+      trap = trapezoid(dots[i], dots[i+1], dx);
+      y = trap - c;
+      t = res + y;
+      c = (t - res) - y;
+      res = t;
+    }
+  }
+  free(dots);
+  return res;
 }
 
 int main(int argc, char** argv)
