@@ -9,9 +9,71 @@ double func(double x)
   return sin(x);
 }
 
+double calc_reduce(double x0, double x1, double dx, uint32_t num_threads)
+{
+    
+    if ( x1 == x0)
+        return 0;
+
+    omp_set_dynamic( 0);
+    omp_set_num_threads( num_threads);
+
+    int     count      = ( int)floor( ( x1 - x0) / dx);
+    double  res = 0.0;
+
+
+    /* Подсчет 2 "хвостиков" */
+    res += ( func( x0) + func( count)) * dx / 2;
+
+    /* sum = [f(0) + f(x1)] * dx / 2 + (f(1) + f(2) + ... + f(x1-1)) * dx */
+    /* Основной ход метода трапеций */
+    #pragma for reduce(+:res) num_threads( num_threads) 
+    for ( int i = 1; i <= count; i++)
+    {
+        res += func( i * dx);
+    }
+
+    res *= dx;
+    res += + (func( dx * ( count - 1)) + func( x1))/2 * ( (x1 - x0) - (dx * ( count - 1)));
+    
+  
+    return res;
+}
+
+
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
-  return 0;
+    
+    if ( x1 == x0)
+        return 0;
+
+    omp_set_dynamic( 0);
+    omp_set_num_threads( num_threads);
+
+    int     count      = ( int)floor( ( x1 - x0) / dx);
+    double* res_buffer = ( double*)calloc( ( count + 1), sizeof( double));
+    double  res = 0.0;
+
+    /* sum = [f(0) + f(x1)] * dx / 2 + (f(1) + f(2) + ... + f(x1-1)) * dx */
+    /* Основной ход метода трапеций */
+    #pragma omp parallel for num_threads( num_threads) 
+    for ( int i = 0; i <= count; i++)
+    {
+        res_buffer[i] = func( i * dx);
+    }
+    
+
+    /* Сложение результатов */
+    for( int i = 1; i < count; i++)
+        res += res_buffer[i];
+
+    res *= dx;
+    
+    /* Подсчет 2 "хвостиков" */
+    res += (res_buffer[0] + res_buffer[count]) * dx / 2 + 
+            ( func( dx * ( count - 1)) + func( x1))/2 * ( (x1 - x0) - (dx * ( count - 1)));
+
+    return res;
 }
 
 int main(int argc, char** argv)

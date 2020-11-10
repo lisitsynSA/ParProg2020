@@ -5,18 +5,69 @@
 #include <unistd.h>
 #include <cmath>
 
+/**
+ * Функция, которая высчитывает границы 
+ */
+void calcIterations( int* leftBorder, int* rightBorder, int rank, double sizeOfBlock, int length)
+{
+    *leftBorder = rank * sizeOfBlock;
+    
+    /* Если справа хватает элементов, то проблем нет, просто выделяем их */
+    if ( (length - *leftBorder) >= sizeOfBlock)
+    {
+	*rightBorder = *leftBorder + sizeOfBlock - 1;
+    } else
+	/* Если справа не хватает элементов (например последний блок), то присваиваем правую границу */
+    {
+	*rightBorder = length - 1;
+    }
+}
+
+/* Вектор зависимости (-1, 3) (>, <) - Это антизависимость (значения сначала используются, а потом вычисляются). Можно распараллелить при условии резервировании данных */
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-  if (rank == 0 && size > 0)
-  {
-    for (uint32_t y = 0; y < ySize - 1; y++)
+    double* bufArr = new double[ySize * xSize]();
+    double* reduceArr = new double[ySize * xSize]();
+
+    if ( rank != 0)
+    {
+	arr = new double[ySize * xSize];
+    }
+
+    /* Передадим всем процессам изначальный массив arr */
+    MPI_Bcast( arr, xSize * ySize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+     /* Найдем границы для каждого процесса */
+    int	yLeftBorder = 0,
+	yRightBorder = 0;
+    
+    int ySizeOfBlock = (int)ceil( (float)(ySize - 1) / size);
+
+    calcIterations( &yLeftBorder, &yRightBorder, rank, ySizeOfBlock, (int)(ySize - 1));
+
+    for (int y = yLeftBorder; y <= yRightBorder; y++)
     {
       for (uint32_t x = 3; x < xSize; x++)
       {
-        arr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
+	  bufArr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
       }
     }
-  }
+
+    /* В каждой области имеем посчитанное значение, теперь надо их просто сложить в 0 процессе */
+    MPI_Reduce( bufArr, reduceArr, (int)(xSize * ySize), MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    for (int i = 0; i < (int)ySize; i++)
+	for ( int j = 0; j < (int)xSize; j++)
+	    if ( reduceArr[i*xSize + j] == 0)
+		reduceArr[i*xSize + j] = arr[i*xSize + j];
+    
+    if( rank == 0)
+    {
+	memcpy( arr, reduceArr, sizeof(double) * xSize * ySize);
+    }
+
+    delete bufArr;
+    delete reduceArr;
 }
 
 int main(int argc, char** argv)
@@ -71,6 +122,10 @@ int main(int argc, char** argv)
       return 1;
     }
   }
+
+  /* Разошлём всем процессам xSize и ySize */
+  MPI_Bcast( &xSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast( &ySize, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
   calc(arr, ySize, xSize, rank, size);
 
