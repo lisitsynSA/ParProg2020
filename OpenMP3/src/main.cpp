@@ -4,6 +4,10 @@
 #include <omp.h>
 #include <cmath>
 
+enum Const
+{
+  NUM_PLACES = 100
+};
 double func(double x)
 {
   return sin(x);
