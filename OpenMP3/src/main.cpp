@@ -4,6 +4,7 @@
 #include <omp.h>
 #include <cmath>
 
+<<<<<<< HEAD
 double func(double x)
 {
   return sin(x);
@@ -12,6 +13,25 @@ double func(double x)
 double calc(double x0, double x1, double dx, uint32_t num_threads)
 {
   return 0;
+=======
+double calc() {
+    size_t n_thread = 0;
+    double x1, x2, dx, res = 0.0;
+    printf("Enter first and last x, and dx\n");
+    scanf("%lf %lf %lf", &x1, &x2, &dx);
+    printf("Enter num of thread\n");
+    scanf("%ld", &n_thread);
+    int n = ceil((x2 - x1) / dx); // #pragma omp for don't work with double type
+    
+    #pragma omp parallel num_threads(n_thread)
+    {
+        #pragma omp for reduction(+:res) 
+        for(int _x = 0; _x < n; ++_x) {
+            res += (f(x1 + _x * dx) + f(x1 + (_x + 1)*dx)) / 2 * dx; 
+        }
+    }
+    return res;
+>>>>>>> for rebase
 }
 
 int main(int argc, char** argv)
