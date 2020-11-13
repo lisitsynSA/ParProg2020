@@ -5,64 +5,109 @@
 #include <unistd.h>
 #include <cmath>
 
-void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank, int size)
-{
-  if (rank == 0 && size > 0)
-  {
-    double diff = 0;
-    double* tmpFrame = new double[ySize * xSize];
-    // Prepare tmpFrame
-    for (uint32_t y = 0; y < ySize; y++)
-    {
-      tmpFrame[y*xSize] = frame[y*xSize];
-      tmpFrame[y*xSize + xSize - 1] = frame[y*xSize + xSize - 1];
-    }
-    for (uint32_t x = 1; x < xSize - 1; x++)
-    {
-      tmpFrame[x] = frame[x];
-      tmpFrame[(ySize - 1)*xSize + x] = frame[(ySize - 1)*xSize + x];
-    }
-    // Calculate first iteration
-    for (uint32_t y = 1; y < ySize - 1; y++)
-    {
-      for (uint32_t x = 1; x < xSize - 1; x++)
-      {
-        tmpFrame[y*xSize + x] = (frame[(y + 1)*xSize + x] + frame[(y - 1)*xSize + x] +\
-                                frame[y*xSize + x + 1] + frame[y*xSize + x - 1])/4.0;
-        diff += std::abs(tmpFrame[y*xSize + x] - frame[y*xSize + x]);
-      }
-    }
+#define ROOT 0
 
-    double* currFrame = tmpFrame;
-    double* nextFrame = frame;
-    uint32_t iteration = 1;
-    // Calculate frames
-    while (diff > delta)
-    {
-      diff = 0;
-      for (uint32_t y = 1; y < ySize - 1; y++)
-      {
-        for (uint32_t x = 1; x < xSize - 1; x++)
-        {
-          nextFrame[y*xSize + x] = (currFrame[(y + 1)*xSize + x] + currFrame[(y - 1)*xSize + x] +\
-                                  currFrame[y*xSize + x + 1] + currFrame[y*xSize + x - 1])/4.0;
-          diff += std::abs(nextFrame[y*xSize + x] - currFrame[y*xSize + x]);
+void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank, int size) { 
+    int* send_dist = NULL;
+    int* send_range = NULL;
+    
+    int* recv_dist = NULL;
+    int* recv_range = NULL;
+
+    double* new_frame = NULL;
+
+    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    int real_rank_size = 0;
+
+    if(rank == ROOT) {
+        size_t my_calc_size = ceil((ySize - 2) * 1.0 / size);
+        // if  proc_rank > ceil(ySize / my_calc_size) it will do nothing
+        real_rank_size = ceil((ySize - 2) * 1.0 / my_calc_size);
+        size_t now_size = 1; 
+        
+        new_frame = (double*)calloc(xSize*ySize, sizeof(double));
+
+        recv_dist = (int*)calloc(size, sizeof(int));
+        recv_range = (int*)calloc(size, sizeof(int));
+
+        send_dist = (int*)calloc(size, sizeof(int));
+        send_range = (int*)calloc(size, sizeof(int));
+
+        for(int i = 0; i < real_rank_size; ++i) {
+            recv_dist[i] = i * xSize * my_calc_size + xSize;
+            recv_range[i] = xSize * std::min(my_calc_size, ySize - 1 - now_size);
+            now_size += std::min(my_calc_size, ySize - 1 - now_size);
         }
-      }
-      std::swap(currFrame, nextFrame);
-      iteration++;
+        
+        for(int i = 0; i < real_rank_size; ++i) {
+            send_range[i] = recv_range[i] + 2*xSize;
+            send_dist[i] = recv_dist[i] - xSize; 
+        }
+        delta++;
+        /*
+        printf("xSize = %u, ySize = %u\n", xSize, ySize);
+        for(int i = 0; i < real_rank_size; ++i) {
+            printf("send_range = %d, send_dist = %d, recv_range = %d, recv_dist = %d\n", 
+                    send_range[i], send_dist[i], recv_range[i], recv_dist[i]);
+        }*/
     }
 
-    // Copy result from tmp
-    if (iteration % 2 == 1)
-    {
-      for (uint32_t i = 0; i < xSize*ySize; i++)
-      {
-        frame[i] = tmpFrame[i];
-      }
+    int send_step = 0;
+    int recv_step = 0;
+
+
+    // Bug with MPI <- i hate it! really!
+    MPI_Scatter(
+                send_range, 1, MPI_INT,
+                &send_step, size, MPI_INT, 
+                ROOT, MPI_COMM_WORLD);
+    MPI_Scatter(
+                recv_range, 1, MPI_INT,
+                &recv_step, size, MPI_INT, 
+                ROOT, MPI_COMM_WORLD);
+    
+    double* my_calc = (double*)calloc(send_step, sizeof(double));
+    double* recv_calc = (double*)calloc(send_step, sizeof(double));
+
+    double diff = 0;
+    do { 
+        MPI_Scatterv(
+                frame, send_range, send_dist, MPI_DOUBLE,
+                my_calc, send_step, MPI_DOUBLE,
+                ROOT, MPI_COMM_WORLD);
+
+        for(size_t y = 1; y < send_step * 1.0 / xSize - 1; ++y) {
+            for(size_t x = 1; x < xSize - 1; ++x) {
+                recv_calc[y * xSize + x] = (my_calc[(y + 1) * xSize + x] +\
+                                            my_calc[(y - 1) * xSize + x] +\
+                                            my_calc[y * xSize + x + 1] +\
+                                            my_calc[y * xSize + x - 1]) / 4.0; 
+            }
+        }
+
+        MPI_Gatherv(
+                my_calc, recv_step, MPI_DOUBLE,
+                new_frame, recv_range, recv_dist, MPI_DOUBLE, 
+                ROOT, MPI_COMM_WORLD);
+        if(rank == ROOT) {
+            for(size_t i = 0; i < xSize * ySize; ++i) {
+                diff += std::abs(new_frame[i] - frame[i]);    
+            }
+            memcpy(frame, new_frame, sizeof(double) * xSize * ySize);
+        }
+        MPI_Bcast(&diff, 1, MPI_DOUBLE, ROOT, MPI_COMM_WORLD); 
+        //printf("[%d] diff = %lf\n", rank, diff);
+    } while(diff > delta);
+    printf("here\n"); 
+    free(my_calc);
+    free(recv_calc);
+    if(rank == ROOT) {
+        free(recv_dist);
+        free(recv_range);
+        free(send_dist);
+        free(send_range);
     }
-    delete tmpFrame;
-  }
 }
 
 int main(int argc, char** argv)
