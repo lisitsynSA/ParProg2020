@@ -10,81 +10,95 @@
 // arr[z*ySize*xSize + y*xSize + x] = sin(arr[(z - 1)*ySize*xSize + (y + 1)*xSize + x + 1]);
 void calc(double* arr, uint32_t zSize, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-    if(size == 1) {
-        for(int64_t z = 1; z < zSize; ++z) {
-            for(int64_t y = 0; y < ySize - 1; ++y) {
-                for(int64_t x = 0; x < xSize - 1; ++x) {
-                    arr[z*ySize*xSize + y*xSize + x] = sin(arr[(z - 1)*ySize*xSize + (y + 1)*xSize + x + 1]);
-                }
-            }
-        }
-        return;
-    }
-
-    int32_t step = 0;
-    int* range = NULL;
-    int* displace = NULL;
+    int* send_dist = NULL;
+    int* send_range = NULL;
+    
+    int* recv_dist = NULL;
     int* recv_range = NULL;
-   
-    double* buf = NULL;
 
-    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
-    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    double* new_arr = NULL;
+
     MPI_Bcast(&zSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
-     
+    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    int real_rank_size = 0;
+
     if(rank == ROOT) {
-        buf = (double*)calloc(xSize*ySize, sizeof(double));
-        uint32_t y_step = ceil(ySize / (1.0 * size)) + 1;
-        uint32_t prev_range = 0;
-        range = (int*)calloc(size, sizeof(int));
-        displace = (int*)calloc(size, sizeof(int));
+        size_t my_calc_size = ceil((ySize) * 1.0 / size);
+        // if  proc_rank > ceil(ySize / my_calc_size) it will do nothing
+        real_rank_size = ceil((ySize) * 1.0 / my_calc_size);
+        size_t now_size = 0; 
+    
+        new_arr = (double*)calloc(xSize*ySize, sizeof(double));
 
-        for(int send_rank = 0; send_rank < size; ++send_rank) {
-            uint32_t real_step = std::min(y_step, ySize - prev_range);
-            range[send_rank] = real_step * xSize;
-            displace[send_rank] = prev_range * xSize + xSize;
-            prev_range += y_step;         
-        }
-
+        recv_dist = (int*)calloc(size, sizeof(int));
         recv_range = (int*)calloc(size, sizeof(int));
-        for(int i = 0; i < size; ++i) {
-            
-            recv_range[i] = range[i] - (range[i] == 0) ? 0 : xSize;
+
+        send_dist = (int*)calloc(size, sizeof(int));
+        send_range = (int*)calloc(size, sizeof(int));
+
+        for(int i = 0; i < real_rank_size; ++i) {
+            recv_dist[i] = i * xSize * my_calc_size;
+            recv_range[i] = xSize * std::min(my_calc_size, ySize - now_size);
+            now_size += std::min(my_calc_size, ySize - now_size);
         }
-    }
-    MPI_Scatter(range, 1, MPI_INT,
-            &step, 1, MPI_INT,
+        
+        for(int i = 0; i < real_rank_size; ++i) {
+            send_range[i] = (i == real_rank_size - 1)? recv_range[i] : recv_range[i] + xSize;
+            send_dist[i] = recv_dist[i]; 
+        }
+    }    
+    int send_step = 0;
+    int recv_step = 0;
+
+
+    // Bug with MPI <- i hate it! really!
+    MPI_Scatter(
+            send_range, 1, MPI_INT,
+            &send_step, size, MPI_INT, 
+            ROOT, MPI_COMM_WORLD);
+    MPI_Scatter(
+            recv_range, 1, MPI_INT,
+            &recv_step, size, MPI_INT, 
             ROOT, MPI_COMM_WORLD);
 
-    double* my_copy = (double*)calloc(step, sizeof(double));
+    double* my_calc = NULL;
+    my_calc = (double*)calloc(send_step, sizeof(double));    
     
+    for(size_t z = 0; z < zSize - 1; ++z) {
+        MPI_Scatterv(
+                arr + z*xSize*ySize, send_range, send_dist, MPI_DOUBLE,
+                my_calc, send_step, MPI_DOUBLE,
+                ROOT, MPI_COMM_WORLD);
 
-    for(size_t z = 1; z < zSize; ++z) {
-        MPI_Scatterv(arr + (z - 1)*ySize*xSize, range, displace, MPI_DOUBLE, 
-                my_copy, step, MPI_DOUBLE, 
-                ROOT, MPI_COMM_WORLD);    
-
-        if(step != 0) {
-            for(uint32_t y = 0; y < step / xSize - 1; ++y) {
-                for(uint32_t x = 0; x < xSize - 1; ++x) {
-                    my_copy[y*xSize + x] = sin(my_copy[(y + 1) * xSize + (x + 1)]);
+        if((uint32_t)send_step > xSize) {
+            for(size_t y = 0; y < send_step / xSize - 1; ++y) {
+                for(size_t x = 0; x < xSize - 1; ++x) {
+                    my_calc[y*xSize + x] = sin(my_calc[(y + 1) * xSize + (x + 1)]);
                 }
             }
         }
-        printf("[%d] my_copy[0] = %lf, step = %d\n", rank, my_copy[0], step);
-        MPI_Gatherv(my_copy, (step == 0) ? 0 : step - xSize, MPI_DOUBLE, 
-                buf, recv_range, displace, MPI_DOUBLE,
+
+        MPI_Gatherv(
+                my_calc, recv_step, MPI_DOUBLE,
+                new_arr, recv_range, recv_dist, MPI_DOUBLE, 
                 ROOT, MPI_COMM_WORLD);
         if(rank == ROOT) {
-            memcpy(arr + z*ySize*xSize, buf, xSize*ySize*sizeof(double));
+            for(size_t y = 0; y < xSize - 1; ++y) {
+                for(size_t x = 0; x < xSize - 1; ++x) {
+                    (arr + (z + 1)*xSize*ySize)[y * xSize + x] = new_arr[y * xSize + x];
+                }
+            }
         }
     }
 
-    free(my_copy);
+    free(my_calc);
     if(rank == ROOT) {
-        free(range);
-        free(displace);
+        free(new_arr);
+        free(recv_dist);
         free(recv_range);
+        free(send_dist);
+        free(send_range);
     }
 }
 
