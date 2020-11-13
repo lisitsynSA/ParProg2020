@@ -14,62 +14,82 @@
 //arr[(y - 1)*xSize + (x + 3)] = sin(0.00001*arr[y*xSize + x]);
 
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size) {
-    int32_t step = 0;
-    int32_t* range = NULL;
-    int32_t* displace = NULL;
+    int* send_dist = NULL;
+    int* send_range = NULL;
     
-    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    int* recv_dist = NULL;
+    int* recv_range = NULL;
+
     MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    int real_rank_size = 0;
+
+    if(rank == ROOT) {
+        size_t my_calc_size = ceil((ySize) * 1.0 / size);
+        // if  proc_rank > ceil(ySize / my_calc_size) it will do nothing
+        real_rank_size = ceil((ySize) * 1.0 / my_calc_size);
+        size_t now_size = 0; 
     
-    if(rank == ROOT) {        
-        uint32_t y_step = ceil(ySize / (1.0 * size)) + 1;
-        uint32_t prev_range = 0;
-        
-        range = (int32_t*)calloc(size, sizeof(int32_t));
-        displace = (int32_t*)calloc(size, sizeof(int32_t));
-        // реализуем перекрытие
-        for(int send_rank = 0; send_rank < size; ++send_rank) {
-            // We will send start_y, step, xSize and part of arr
-            uint32_t real_step = std::min(y_step, ySize - prev_range);
-            range[send_rank] = real_step * xSize;
-            displace[send_rank] = prev_range * xSize;
-            prev_range += y_step - 1; 
+        recv_dist = (int*)calloc(size, sizeof(int));
+        recv_range = (int*)calloc(size, sizeof(int));
+
+        send_dist = (int*)calloc(size, sizeof(int));
+        send_range = (int*)calloc(size, sizeof(int));
+
+        for(int i = 0; i < real_rank_size; ++i) {
+            recv_dist[i] = i * xSize * my_calc_size;
+            recv_range[i] = xSize * std::min(my_calc_size, ySize - now_size);
+            now_size += std::min(my_calc_size, ySize - now_size);
         }
-    }
-    MPI_Scatter(range, 1, MPI_INT,
-            &step, 1, MPI_INT,
+        
+        for(int i = 0; i < real_rank_size; ++i) {
+            send_range[i] = (i == real_rank_size - 1)? recv_range[i] : recv_range[i] + xSize;
+            send_dist[i] = recv_dist[i]; 
+        }
+    }    
+    int send_step = 0;
+    int recv_step = 0;
+
+
+    // Bug with MPI <- i hate it! really!
+    MPI_Scatter(
+            send_range, 1, MPI_INT,
+            &send_step, size, MPI_INT, 
+            ROOT, MPI_COMM_WORLD);
+    MPI_Scatter(
+            recv_range, 1, MPI_INT,
+            &recv_step, size, MPI_INT, 
+            ROOT, MPI_COMM_WORLD);
+
+    double* my_calc = NULL;
+    my_calc = (double*)calloc(send_step, sizeof(double));    
+
+    MPI_Scatterv(
+            arr, send_range, send_dist, MPI_DOUBLE,
+            my_calc, send_step, MPI_DOUBLE,
             ROOT, MPI_COMM_WORLD);
     
-
-    double* my_copy = (double*) calloc(step, sizeof(double));
-    MPI_Scatterv(arr, range, displace, MPI_DOUBLE, 
-            my_copy, step, MPI_DOUBLE, 
-            ROOT, MPI_COMM_WORLD);    
-    
-    if(rank == ROOT) {
-        for(int i = 0; i < size; ++i) {
-            range[i] -= (range[i] == 0) ? 0 : xSize;
-        }
-    }
-
-    if(step != 0) {
-        for(uint32_t y = 0; y < step / xSize - 1; ++y) {
-            for(uint32_t x = 3; x < xSize; ++x) {
-                my_copy[y*xSize + x] = sin(0.00001*my_copy[(y + 1) * xSize + (x - 3)]);
+    if((uint32_t)send_step > xSize) {
+        for(size_t y = 0; y < send_step / xSize - 1; ++y) {
+            for(size_t x = 3; x < xSize; ++x) {
+                my_calc[y*xSize + x] = sin(0.00001*my_calc[(y + 1) * xSize + (x - 3)]);
             }
         }
     }
- 
-    MPI_Gatherv(my_copy, (step == 0)?0:step - xSize, MPI_DOUBLE, 
-            arr, range, displace, MPI_DOUBLE,
-            ROOT, MPI_COMM_WORLD);
 
+    MPI_Gatherv(
+            my_calc, recv_step, MPI_DOUBLE,
+            arr, recv_range, recv_dist, MPI_DOUBLE, 
+            ROOT, MPI_COMM_WORLD);    
+
+
+    free(my_calc);
     if(rank == ROOT) {
-
-        free(range);
-        free(displace);
+        free(recv_dist);
+        free(recv_range);
+        free(send_dist);
+        free(send_range);
     }
-    free(my_copy); 
 }
 
 int main(int argc, char** argv)
