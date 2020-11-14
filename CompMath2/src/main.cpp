@@ -42,7 +42,7 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
         
         for(int i = 0; i < real_rank_size; ++i) {
             if(real_rank_size == 1) {
-                continue;
+                send_range[i] = recv_range[i];
             } else if(i == 0) {
                 send_range[i] = recv_range[i] + xSize;
             } else if(i == real_rank_size - 1) {
@@ -53,6 +53,8 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
                 send_dist[i] = recv_dist[i] - xSize;
             }
         }
+        recv_dist[0] += xSize;
+        recv_range[0] -= xSize;
     }
 
     int send_step = 0;
@@ -71,7 +73,6 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
 
     double* my_calc = (double*)calloc(send_step, sizeof(double));
     double* recv_calc = (double*)calloc(send_step, sizeof(double));
-    printf("[%d] send_step = %d\n", rank, send_step / xSize);
     double diff = 0;
     int stop = 0;
     do { 
@@ -89,7 +90,7 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
         }
 
         MPI_Gatherv(
-                recv_calc, recv_step, MPI_DOUBLE,
+                recv_calc + xSize, recv_step, MPI_DOUBLE,
                 new_frame, recv_range, recv_dist, MPI_DOUBLE, 
                 ROOT, MPI_COMM_WORLD);
 
@@ -104,6 +105,7 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
             } else {
                 stop = 0;
             }
+            diff = 0;
             for (uint32_t y = 1; y < ySize - 1; y++) {
                 for (uint32_t x = 1; x < xSize - 1; x++) {
                     frame[y*xSize + x] = new_frame[y*xSize + x];
