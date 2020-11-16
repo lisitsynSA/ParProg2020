@@ -38,19 +38,18 @@ void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
             uint32_t real_step = std::min(x_step, xSize - prev_range);
             range[send_rank] = real_step * ySize;
             displace[send_rank] = prev_range * ySize;
-            prev_range += x_step; 
+            prev_range += real_step; 
         }
     }
     MPI_Scatter(range, 1, MPI_INT,
             &step, 1, MPI_INT,
             ROOT, MPI_COMM_WORLD);
 
-
-    double* my_copy = (double*) calloc(step, sizeof(double));
+    double* my_copy = NULL;
+    my_copy = (double*) calloc(step, sizeof(double));
     MPI_Scatterv(new_arr, range, displace, MPI_DOUBLE, 
             my_copy, step, MPI_DOUBLE, 
             ROOT, MPI_COMM_WORLD);    
-
     for(size_t x = 0; x < step / ySize; ++x) {
         for(size_t y = 4; y < ySize; ++y) {
             my_copy[x*ySize + y] = sin(my_copy[x*ySize + y - 4]);
