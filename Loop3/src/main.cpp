@@ -7,94 +7,75 @@
 
 #define ROOT 0
 
-void form_arr(double* arr, double* copy_arr, uint32_t ySize, uint32_t xSize, int* ran) {
-    int pos = 0;
-    for(int i = 0; i < 4; ++i) {
-        for(uint32_t y = i; y < ySize; y += 4) {
-            memcpy(&copy_arr[(pos++) * xSize], &arr[y * xSize], xSize * sizeof(double));
-            ran[i] += xSize;
-        }
-    }
-}
-
-void unform_arr(double* arr, double* copy_arr, uint32_t ySize, uint32_t xSize) {
-    int pos = 0;
-    for(int i = 0; i < 4; ++i) {
-        for(uint32_t y = i; y < ySize; y += 4) {
-            memcpy(&arr[y * xSize], &copy_arr[(pos++) * xSize], xSize * sizeof(double));
-        }
-    }
-}
-
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
-    MPI_Comm comm;
-    if(size < 4) {
-        if(rank == ROOT) {
-            for (uint32_t y = 4; y < ySize; y++) {
-                for (uint32_t x = 0; x < xSize; x++) {
-                    arr[y*xSize + x] = sin(arr[(y - 4)*xSize + x]);
-                }
+    double* new_arr = NULL;
+    if(rank == ROOT) {
+        new_arr = (double*)calloc(xSize * ySize, sizeof(double));
+        for(size_t y = 0; y < ySize; ++y) {
+            for(size_t x = 0; x < xSize; ++x) {
+                new_arr[x*ySize + y] = arr[y*xSize + x];
             }
         }
-        return;
     }
 
-    MPI_Comm_split(MPI_COMM_WORLD, (rank < 4) ? 1 : MPI_UNDEFINED, rank, &comm);
-    if(rank >= 4) {
-        return; 
-    }
-
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
+    int32_t step = 0;
+    int32_t* range = NULL;
+    int32_t* displace = NULL;
     
-    int* ran = NULL;
-    int* dis = NULL;
-    double* new_array = NULL;
-    int step = 0;
-
-    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, comm);
-    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, comm);
-    /*
-    if(rank == ROOT) {
-        printf("%d\n", size);
-    }*/
+    MPI_Bcast(&xSize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
+    MPI_Bcast(&ySize, 1, MPI_UNSIGNED, ROOT, MPI_COMM_WORLD);
     
-    if(rank == ROOT) { 
-        ran = (int*)calloc(4, sizeof(int));
-        dis = (int*)calloc(4, sizeof(int));
-        new_array = (double*)calloc(xSize*ySize, sizeof(double));
-        form_arr(arr, new_array, ySize, xSize, ran);
-        dis[1] = ran[0];
-        dis[2] = ran[1] + dis[1];
-        dis[3] = ran[2] + dis[2];
-    }
+    if(rank == ROOT) {        
+        uint32_t x_step = ceil(xSize / (1.0 * size));
+        uint32_t prev_range = 0;
+        
+        range = (int32_t*)calloc(size, sizeof(int32_t));
+        displace = (int32_t*)calloc(size, sizeof(int32_t));
 
-    MPI_Scatter(ran, 1, MPI_INT,
+        for(int send_rank = 0; send_rank < size; ++send_rank) {
+            // We will send start_y, step, xSize and part of arr
+            uint32_t real_step = std::min(x_step, xSize - prev_range);
+            range[send_rank] = real_step * ySize;
+            displace[send_rank] = prev_range * ySize;
+            prev_range += x_step; 
+        }
+    }
+    MPI_Scatter(range, 1, MPI_INT,
             &step, 1, MPI_INT,
-            ROOT, comm);
-    //printf("[%d] task = %d, step = %d\n", rank, ySize * xSize, step);
+            ROOT, MPI_COMM_WORLD);
 
-    double* my_copy = (double*)calloc(step, sizeof(double));
-    MPI_Scatterv(new_array, ran, dis, MPI_DOUBLE, 
+
+    double* my_copy = (double*) calloc(step, sizeof(double));
+    MPI_Scatterv(new_arr, range, displace, MPI_DOUBLE, 
             my_copy, step, MPI_DOUBLE, 
-            ROOT, comm);
+            ROOT, MPI_COMM_WORLD);    
 
-    for(int x = xSize; x < step; ++x) {
-        my_copy[x] = sin(my_copy[x - xSize]);
+    for(size_t x = 0; x < step / ySize; ++x) {
+        for(size_t y = 4; y < ySize; ++y) {
+            my_copy[x*ySize + y] = sin(my_copy[x*ySize + y - 4]);
+        }
     }
-    
+
     MPI_Gatherv(my_copy, step, MPI_DOUBLE, 
-            new_array, ran, dis, MPI_DOUBLE,
-            ROOT, comm);
+            new_arr, range, displace, MPI_DOUBLE,
+            ROOT, MPI_COMM_WORLD);
 
     if(rank == ROOT) {
-        unform_arr(arr, new_array, ySize, xSize);
-        free(new_array);
-        free(ran);
-        free(dis);
+        for(size_t y = 0; y < ySize; ++y) {
+            for(size_t x = 0; x < xSize; ++x) {
+                arr[y*xSize + x] = new_arr[x*ySize + y];
+            }
+        }
     }
-    free(my_copy);
+    
+    
+    if(rank == ROOT) {
+        free(new_arr);
+        free(range);
+        free(displace);
+    }
+    free(my_copy); 
 }
 
 int main(int argc, char** argv)
