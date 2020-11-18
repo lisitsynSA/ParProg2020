@@ -24,9 +24,6 @@ void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
   if (rank == 0 && size > 0)
   {
     uint64_t startSize;
-    chain_size = ySize / 4 + 1;
-    if (ySize % 4 == 0)
-      --chain_size;
     startSize = xSize * 4;
     int div = startSize / size;
     mod = startSize % size;
