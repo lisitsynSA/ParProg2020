@@ -6,11 +6,12 @@
 double calc(uint32_t x_last, uint32_t num_threads) //Fails at TEST04 in last number(sometimes pre-last number).
 {                                                  //The strange thing is that my sum little bigger than test sum.
   double sum = 0.0;                                //May be parallel calc is more accuracy?
-  #pragma omp parallel for num_threads(num_threads) reduction(+:sum)
+  double* arr_sum = new double[x_last];
+  #pragma omp parallel for num_threads(num_threads) //reduction(+:sum)
   for(uint32_t i = x_last; i > 0; i--)
-  {
-    sum += 1.0 / i;
-  }
+    arr_sum[i - 1] += 1.0 / i;
+  for(uint32_t i = x_last; i > 0; --i)
+    sum += arr_sum[i - 1];
   return sum;
 }
 
