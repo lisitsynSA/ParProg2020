@@ -2,16 +2,43 @@
 #include <iomanip>
 #include <fstream>
 #include <omp.h>
-#include <cmath>
+#include <math.h>
 
-double func(double x)
-{
-  return sin(x);
-}
+#define PI (2 * asin(1))
+#define DELTA(dx) (PI / dx)
+
+double (*f)(double) = sin;
 
 double calc(double x0, double x1, double dx, uint32_t num_threads)
-{
-  return 0;
+{  
+    if(x1 - x0 == 0) {
+        return 0.0;
+    }
+    double res = 0.0;
+    size_t n = size_t((x1 - x0) / dx) + 1; // #pragma omp for don't work with double type
+    double* resbuf = (double*)calloc(n, sizeof(double));
+    #pragma omp parallel num_threads(num_threads)
+    {
+        #pragma omp for 
+        for(size_t _x = 0; _x < n; ++_x) {
+            if(_x == 0 || _x == n - 1) {
+                resbuf[_x] = f(x0 + _x * dx) / 2 * dx; 
+            } else {
+                resbuf[_x ]= f(x0 + _x * dx) * dx; 
+            }
+        }
+    }
+    size_t j = 0;
+    size_t s = 0;
+    for(size_t i = 0; i <= n; ++i) {
+        res += resbuf[j];
+        j += DELTA(dx);
+        if(j >= n) {
+            s++;
+            j = s;
+        }
+    } 
+    return res;
 }
 
 int main(int argc, char** argv)
