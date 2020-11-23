@@ -12,30 +12,127 @@ double acceleration(double t)
 
 void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, double y1, int rank, int size)
 {
+  int count, pre_count;
+  int mod;
+  double v, u;
+  double start_t;
+
   // Sighting shot
-  double v0 = 0;
+  MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   if (rank == 0 && size > 0)
   {
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
+    count = traceSize / size;
+    mod = traceSize % size;
+    
+    ++count;
+    for(int i = 0; i < mod; ++i)
     {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+      start_t = t0 + dt * ((count - 1) + i * count);
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&start_t, 1 , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
+    }
+
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+    {
+      start_t = t0 + dt * (count + mod + i * count);
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&start_t, 1 , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
+    }
+    start_t = t0;
+    
+  }
+  if (rank != 0 && size > 0)
+  {
+    MPI_Recv(&count, 1 , MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&start_t, 1 , MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+
+  v = 0;
+  double* local_array = new double[count + 1];
+  if (rank != 0 && size > 0)
+    local_array[0] = 0;
+  if (rank == 0 && size > 0)
+    local_array[0] = y0;
+  local_array[1] = local_array[0] + dt * v;
+  for (int i = 2; i < (count + 1); i++)
+    local_array[i] = dt*dt*acceleration(start_t + (i - 1)*dt) + 2*local_array[i - 1] - local_array[i - 2];
+  u = (local_array[count] - local_array[count - 1]) / dt; // b = local_array[count]
+
+  double tmp_a, tmp_b, tmp_u, tmp_v;
+
+  if (rank != 0 && size > 0)
+  {
+    MPI_Recv(&pre_count, 1 , MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&tmp_a, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&tmp_b, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&tmp_u, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&tmp_v, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    local_array[0] = tmp_a + tmp_b + dt * pre_count * tmp_v;
+    v = tmp_u + tmp_v;   
+  }
+  if ((rank != size - 1) && size > 1)
+  {
+    MPI_Send(&count, 1 , MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&local_array[0], 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&local_array[count], 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&u, 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&v, 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+  }
+  if (rank == size - 1)
+  {
+    if (size > 1)
+    {
+      double tmp_y1_miss = local_array[0] + local_array[count - 1] + dt * (count - 1) * v; //because we dont need local_array[count]
+      MPI_Send(&tmp_y1_miss, 1 , MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
     }
   }
+
 
   // The final shot
   if (rank == 0 && size > 0)
   {
-    v0 = (y1 - trace[traceSize - 1])/(dt*traceSize);
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
-    {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
-    }
+    double y1_miss;
+    if (size > 1)
+      MPI_Recv(&y1_miss, 1 , MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    else
+      y1_miss = local_array[0] + local_array[count - 1] + dt * (count - 1) * v;
+    printf("y1_miss: %f\n", y1_miss);
+    v = (y1 - y1_miss) / (dt * traceSize);
+    local_array[0] = y0;
   }
+  if (rank != 0 && size > 0)
+  {
+    double tmp_a_2, tmp_v_2;
+    MPI_Recv(&tmp_a_2, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&tmp_v_2, 1 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    local_array[0] = tmp_b + tmp_a_2 + dt * pre_count * tmp_v_2;
+    v = tmp_u + tmp_v_2;
+  }
+  if ((rank != size - 1) && size > 0)
+  { 
+    MPI_Send(&local_array[0], 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+    MPI_Send(&v, 1 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+  }
+  local_array[1] = local_array[0] + dt * v;
+  for(int i = 2; i < count; ++i)
+    local_array[i] = dt*dt*acceleration(start_t + (i - 1)*dt) + 2*local_array[i - 1] - local_array[i - 2];
+  
+  if (rank != 0 && size > 0)
+    MPI_Send(local_array, count , MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+  if (rank == 0 && size > 0)
+  {
+    for(int i = 0; i < count; ++i)
+      trace[i] = local_array[i];
+    ++count;
+    for(int i = 0; i < mod; ++i)
+      MPI_Recv(&trace[(count - 1) + i * count], count , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+      MPI_Recv(&trace[count + mod + i * count], count , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
+  } 
+  delete local_array;
 }
 
 int main(int argc, char** argv)
