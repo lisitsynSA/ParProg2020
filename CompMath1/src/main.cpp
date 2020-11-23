@@ -12,31 +12,83 @@ double acceleration(double t)
 
 void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, double y1, int rank, int size)
 {
-  // Sighting shot
-  double v0 = 0;
-  if (rank == 0 && size > 0)
-  {
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
-    {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
-    }
-  }
+	MPI_Status status;
+	MPI_Bcast (&traceSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast (&t0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast (&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
+	uint32_t mySize = traceSize / size;
+	if (rank == 0) {
+		mySize += traceSize % size;
+	}
+
+	double tau = dt * mySize;
+
+	if (rank != 0) {
+		trace = (double *)malloc(mySize * sizeof(double));
+	}
+	// Sighting shot
+	double v0 = 0, v1, myY1;
+	t0 += tau * rank;
+	if (rank != 0) {
+		t0 += dt * (traceSize % size);
+	}
+	trace[0] = y0;
+	trace[1] = y0 + dt*v0;
+	for (uint32_t i = 2; i < mySize; i++) {
+		trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+	}
+
+	v1 = (trace[mySize - 1] - trace[mySize - 2]) / dt;
+	myY1 = trace[mySize - 1];
+
+	if (size == 1) {
+		v0 = (y1 - myY1) / tau;
+	} else {
+		double bufY, bufV;
+		if (rank == 0) {
+			MPI_Send(&myY1, 1, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
+			MPI_Send(&v1, 1, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
+			MPI_Recv(&bufY, 1, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, &status);	
+			v0 = (y1 - bufY) / (traceSize * dt);
+			MPI_Bcast(&v0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		} else {
+			MPI_Recv(&bufY, 1, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, &status);
+			MPI_Recv(&bufV, 1, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, &status);
+
+			myY1 += bufY + bufV * (mySize - 1) * dt;
+			v1 += bufV;
+
+			if (rank != size - 1) {
+				MPI_Send(&myY1, 1, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+				MPI_Send(&v1, 1, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);	
+			} else {
+				MPI_Send(&myY1, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+			}
+			
+			MPI_Bcast(&v0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			y0 = bufY + v0 * tau * rank + v0 * dt * (traceSize % size);
+			v0 += bufV;
+		}
+
+}		
   // The final shot
-  if (rank == 0 && size > 0)
-  {
-    v0 = (y1 - trace[traceSize - 1])/(dt*traceSize);
-    trace[0] = y0;
-    trace[1] = y0 + dt*v0;
-    for (uint32_t i = 2; i < traceSize; i++)
-    {
-      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
-    }
-  }
-
+	trace[0] = y0;
+	trace[1] = y0 + dt*v0;
+	for (uint32_t i = 2; i < mySize; i++) {
+		 trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+	}
+	if (rank == 0) {
+		mySize -= (traceSize % size);
+		for(int i = 1; i < size; i++) {
+			MPI_Recv(&trace[i * mySize + (traceSize % size)], mySize, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &status);
+		}
+	} else {
+		MPI_Send(trace, mySize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+		free(trace);
+	}
 }
+
 
 int main(int argc, char** argv)
 {
