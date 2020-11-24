@@ -5,20 +5,75 @@
 #include <unistd.h>
 #include <cmath>
 
+//arr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
+  int count;
+  int mod;
+  double* local_array;
+  double* send_array;
   if (rank == 0 && size > 0)
   {
-    for (uint32_t y = 0; y < ySize - 1; y++)
+    uint64_t xySize;
+    xSize -= 3;
+    ySize -= 1;
+    xySize = xSize * ySize;
+    int div = xySize / size;
+    mod = xySize % size;
+    send_array = new double[xySize];
+    
+    for(uint32_t i = 0; i < ySize; ++i)
+      for(uint32_t j = 0; j < xSize; ++j)
+        send_array[i * xSize + j] = arr[(i + 1) * (xSize + 3) + j];
+    
+    count = div + 1;
+    for(int i = 0; i < mod; ++i)
     {
-      for (uint32_t x = 3; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[(y + 1)*xSize + x - 3]);
-      }
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&send_array[(count - 1) + i * count], count , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
     }
+    
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+    {
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&send_array[count + i * count + mod], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
+    }
+
+    local_array = send_array;
+  }
+  if (rank != 0 && size > 0)
+  {
+    MPI_Recv(&count, 1 , MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    local_array = new double[count];
+    MPI_Recv(local_array, count, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+  
+  for(int i = 0; i < count; ++i)
+    local_array[i] = sin(0.00001*(local_array[i]));
+
+  if (rank != 0 && size > 0)
+  {
+    MPI_Send(local_array, count, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    delete local_array;
+  }
+
+  if (rank == 0 && size > 0)
+  {
+    ++count;
+    for(int i = 0; i < mod; ++i)
+      MPI_Recv(&send_array[(count - 1) + i * count], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+      MPI_Recv(&send_array[count + i * count + mod], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    for(uint32_t i = 0; i < ySize; ++i)
+      for(uint32_t j = 0; j < xSize; ++j)
+        arr[i * (xSize + 3) + (j + 3)] = send_array[i * xSize + j];
+    delete send_array;
   }
 }
 
+		  
 int main(int argc, char** argv)
 {
   int rank = 0, size = 0, buf = 0;

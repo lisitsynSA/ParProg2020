@@ -7,16 +7,58 @@
 
 void calc(double* arr, uint32_t ySize, uint32_t xSize, int rank, int size)
 {
+  int count;
+  uint64_t xySize;
+  int mod;
+  double* local_array;
   if (rank == 0 && size > 0)
   {
-    for (uint32_t y = 0; y < ySize; y++)
+    xySize = xSize * ySize;
+    int div = xySize / size;
+    mod = xySize % size;
+    
+    count = div + 1;
+    for(int i = 0; i < mod; ++i)
     {
-      for (uint32_t x = 0; x < xSize; x++)
-      {
-        arr[y*xSize + x] = sin(0.00001*arr[y*xSize + x]);
-      }
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&arr[(count - 1) + i * count], count , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
     }
+    
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+    {
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&arr[count + i * count + mod], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
+    }
+
+    local_array = arr;
+ }
+  if (rank != 0 && size > 0)
+  {
+    MPI_Recv(&count, 1 , MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    local_array = new double[count];
+    MPI_Recv(local_array, count, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   }
+  
+  for(int i = 0; i < count; ++i)
+    local_array[i] = sin(0.00001*(local_array[i]));
+
+  if (rank != 0 && size > 0)
+  {
+    MPI_Send(local_array, count, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+  }
+
+  if (rank == 0 && size > 0)
+  {
+    ++count;
+    for(int i = 0; i < mod; ++i)
+      MPI_Recv(&arr[(count - 1) + i * count], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+      MPI_Recv(&arr[count + i * count + mod], count, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+  if (rank != 0 && size > 0)
+    delete local_array;
 }
 
 int main(int argc, char** argv)
@@ -73,7 +115,7 @@ int main(int argc, char** argv)
   }
 
   calc(arr, ySize, xSize, rank, size);
-
+  
   if (rank == 0)
   {
     // Prepare output file
