@@ -10,6 +10,7 @@ double acceleration(double t)
   return sin(t);
 }
 
+#ifdef REFERENCE /* don't edit reference implementation, it is needed for tests */
 void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, double y1, int rank, int size)
 {
   // Sighting shot
@@ -35,8 +36,37 @@ void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, do
       trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
     }
   }
-
 }
+#else /* REFERENCE */
+void calc(double* trace, uint32_t traceSize, double t0, double dt, double y0, double y1, int rank, int size)
+{
+  /* Feel free to edit code in this function */
+
+  // Sighting shot
+  double v0 = 0;
+  if (rank == 0 && size > 0)
+  {
+    trace[0] = y0;
+    trace[1] = y0 + dt*v0;
+    for (uint32_t i = 2; i < traceSize; i++)
+    {
+      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+    }
+  }
+
+  // The final shot
+  if (rank == 0 && size > 0)
+  {
+    v0 = (y1 - trace[traceSize - 1])/(dt*traceSize);
+    trace[0] = y0;
+    trace[1] = y0 + dt*v0;
+    for (uint32_t i = 2; i < traceSize; i++)
+    {
+      trace[i] = dt*dt*acceleration(t0 + (i - 1)*dt) + 2*trace[i - 1] - trace[i - 2];
+    }
+  }
+}
+#endif
 
 int main(int argc, char** argv)
 {
@@ -100,9 +130,8 @@ int main(int argc, char** argv)
 
     for (uint32_t i = 0; i < traceSize; i++)
     {
-      output << " " << trace[i];
+      output << std::fixed << std::setprecision(13) << trace[i] << std::endl;
     }
-    output << std::endl;
     output.close();
     delete trace;
   }
