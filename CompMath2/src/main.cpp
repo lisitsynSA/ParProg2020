@@ -7,62 +7,108 @@
 
 void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank, int size)
 {
+  int count, mod;
+  double* local_array;
+  MPI_Bcast(&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
   if (rank == 0 && size > 0)
   {
-    double diff = 0;
-    double* tmpFrame = new double[ySize * xSize];
-    // Prepare tmpFrame
-    for (uint32_t y = 0; y < ySize; y++)
+    count = (ySize - 2) / size;
+    mod = (ySize - 2) % size;
+    
+    ++count;
+    for(int i = 0; i < mod; ++i)
     {
-      tmpFrame[y*xSize] = frame[y*xSize];
-      tmpFrame[y*xSize + xSize - 1] = frame[y*xSize + xSize - 1];
-    }
-    for (uint32_t x = 1; x < xSize - 1; x++)
-    {
-      tmpFrame[x] = frame[x];
-      tmpFrame[(ySize - 1)*xSize + x] = frame[(ySize - 1)*xSize + x];
-    }
-    // Calculate first iteration
-    for (uint32_t y = 1; y < ySize - 1; y++)
-    {
-      for (uint32_t x = 1; x < xSize - 1; x++)
-      {
-        tmpFrame[y*xSize + x] = (frame[(y + 1)*xSize + x] + frame[(y - 1)*xSize + x] +\
-                                frame[y*xSize + x + 1] + frame[y*xSize + x - 1])/4.0;
-        diff += std::abs(tmpFrame[y*xSize + x] - frame[y*xSize + x]);
-      }
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&frame[(1 + (count - 1) + i * count - 1) * xSize], (count + 2) * xSize , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
     }
 
-    double* currFrame = tmpFrame;
-    double* nextFrame = frame;
-    uint32_t iteration = 1;
-    // Calculate frames
-    while (diff > delta)
+    --count;
+    for(int i = mod; i < size - 1; ++i)
     {
-      diff = 0;
-      for (uint32_t y = 1; y < ySize - 1; y++)
-      {
-        for (uint32_t x = 1; x < xSize - 1; x++)
-        {
-          nextFrame[y*xSize + x] = (currFrame[(y + 1)*xSize + x] + currFrame[(y - 1)*xSize + x] +\
-                                  currFrame[y*xSize + x + 1] + currFrame[y*xSize + x - 1])/4.0;
-          diff += std::abs(nextFrame[y*xSize + x] - currFrame[y*xSize + x]);
-        }
-      }
-      std::swap(currFrame, nextFrame);
-      iteration++;
+      MPI_Send(&count, 1 , MPI_INT, i + 1, 0, MPI_COMM_WORLD);
+      MPI_Send(&frame[(1 + count + mod + i * count - 1) * xSize], (count + 2) * xSize , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD);
     }
 
-    // Copy result from tmp
-    if (iteration % 2 == 1)
-    {
-      for (uint32_t i = 0; i < xSize*ySize; i++)
-      {
-        frame[i] = tmpFrame[i];
-      }
-    }
-    delete tmpFrame;
+    local_array = frame;
+  } 
+  
+  if (rank != 0 && size > 0)
+  {
+    MPI_Recv(&count, 1 , MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    local_array = new double[(count + 2) * xSize];
+    MPI_Recv(local_array, (count + 2) * xSize , MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    
   }
+
+  double* up_string = new double[xSize - 2]; //up_string is what was upper
+  double* tmp_string = new double[xSize - 1]; //tmp_string[0] is what was lefter
+  int is_calculate = 1;
+  double diff;
+  double diff_sum;
+  double* diff_recv;
+  if (rank == 0 && size > 0)
+    diff_recv = new double[size];
+  while(is_calculate)
+  {
+    diff = 0;
+    for(uint32_t x = 1; x < xSize - 1; ++x)
+      up_string[x - 1] = local_array[x];
+    for(int y = 1; y < count + 1; ++y)
+    {
+      tmp_string[0] = local_array[y * xSize];
+      for(uint32_t x = 1; x < xSize - 1; ++x)
+      {
+        tmp_string[x] = local_array[y*xSize + x];
+        local_array[y*xSize + x] = (up_string[x - 1] + local_array[(y + 1)*xSize + x] +\
+                                    local_array[y*xSize + x + 1] + tmp_string[x - 1])/4.0;
+        up_string[x - 1] = tmp_string[x];
+        diff += std::abs(local_array[y*xSize + x] - tmp_string[x]);
+      }
+    }
+
+    //0--->ySize
+    if (rank != 0 && size > 0)
+      MPI_Recv(&local_array[1], xSize - 2 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    
+    if ((rank != size - 1) && size > 0)
+      MPI_Send(&local_array[count * xSize + 1], xSize - 2 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+    //0<---ySize
+    if ((rank != size - 1) && size > 0)
+      MPI_Recv(&local_array[(count + 1) * xSize + 1], xSize - 2 , MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    
+    if (rank != 0 && size > 0)
+      MPI_Send(&local_array[1 * xSize + 1], xSize - 2 , MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD);
+    
+    MPI_Gather(&diff, 1, MPI_DOUBLE, diff_recv, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    if (rank == 0 && size > 0)
+    {
+      diff_sum = 0;
+      for(int i = 0; i < size; ++i)
+        diff_sum += diff_recv[i];
+      if (diff_sum <= delta)
+        is_calculate = 0;
+    }
+    MPI_Bcast(&is_calculate, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  }
+  if (rank != 0 && size > 0)
+  {
+    MPI_Send(&local_array[1 * xSize], xSize * count , MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+  }
+  if (rank == 0 && size > 0)
+  {
+    ++count;
+    for(int i = 0; i < mod; ++i)
+      MPI_Recv(&frame[(1 + (count - 1) + i * count) * xSize], count * xSize , MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    --count;
+    for(int i = mod; i < size - 1; ++i)
+      MPI_Recv(&frame[(1 + count + mod + i * count) * xSize], count * xSize, MPI_DOUBLE, i + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+    
+  if (rank == 0 && size > 0)
+    delete diff_recv;
+  if (rank != 0 && size > 0)
+    delete local_array;
+  delete up_string;
+  delete tmp_string;
 }
 
 int main(int argc, char** argv)
