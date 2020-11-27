@@ -7,63 +7,111 @@
 
 void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank, int size)
 {
-  if (rank == 0 && size > 0)
-  {
-    double diff = 0;
-    double* tmpFrame = new double[ySize * xSize];
-    // Prepare tmpFrame
-    for (uint32_t y = 0; y < ySize; y++)
-    {
-      tmpFrame[y*xSize] = frame[y*xSize];
-      tmpFrame[y*xSize + xSize - 1] = frame[y*xSize + xSize - 1];
-    }
-    for (uint32_t x = 1; x < xSize - 1; x++)
-    {
-      tmpFrame[x] = frame[x];
-      tmpFrame[(ySize - 1)*xSize + x] = frame[(ySize - 1)*xSize + x];
-    }
-    // Calculate first iteration
-    for (uint32_t y = 1; y < ySize - 1; y++)
-    {
-      for (uint32_t x = 1; x < xSize - 1; x++)
-      {
-        tmpFrame[y*xSize + x] = (frame[(y + 1)*xSize + x] + frame[(y - 1)*xSize + x] +\
-                                frame[y*xSize + x + 1] + frame[y*xSize + x - 1])/4.0;
-        diff += std::abs(tmpFrame[y*xSize + x] - frame[y*xSize + x]);
-      }
-    }
+	MPI_Status status;
+	MPI_Bcast (&xSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast (&ySize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast (&delta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    double* currFrame = tmpFrame;
-    double* nextFrame = frame;
-    uint32_t iteration = 1;
-    // Calculate frames
-    while (diff > delta)
-    {
-      diff = 0;
-      for (uint32_t y = 1; y < ySize - 1; y++)
-      {
-        for (uint32_t x = 1; x < xSize - 1; x++)
-        {
-          nextFrame[y*xSize + x] = (currFrame[(y + 1)*xSize + x] + currFrame[(y - 1)*xSize + x] +\
-                                  currFrame[y*xSize + x + 1] + currFrame[y*xSize + x - 1])/4.0;
-          diff += std::abs(nextFrame[y*xSize + x] - currFrame[y*xSize + x]);
-        }
-      }
-      std::swap(currFrame, nextFrame);
-      iteration++;
-    }
 
-    // Copy result from tmp
-    if (iteration % 2 == 1)
-    {
-      for (uint32_t i = 0; i < xSize*ySize; i++)
-      {
-        frame[i] = tmpFrame[i];
-      }
-    }
-    delete tmpFrame;
-  }
+	uint32_t mySize = ySize / size;
+	uint32_t yFirst = mySize * rank + ySize % size;
+
+	if (rank == 0) {
+		yFirst = 1;
+		mySize += ySize % size - 1;
+	}
+
+	if (rank == size - 1) {
+		mySize--;
+	}
+
+	uint32_t yLast = yFirst + mySize;
+
+	double diff = 0;
+
+	if (mySize == 0) {
+		diff = 2 * delta;
+	}
+
+	double* inFrame = (double *)malloc(xSize * ySize * sizeof(double));
+
+	if (rank > 0) {
+		frame = (double *)malloc(xSize * ySize * sizeof(double));
+	}
+
+	MPI_Bcast (frame, xSize * ySize, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	memcpy(inFrame, frame, xSize * ySize * sizeof (double));
+
+	for (uint32_t y = yFirst; y < yLast; y++) {
+		for (uint32_t x = 1; x < xSize - 1; x++) {
+			inFrame[y * xSize + (x)] = (frame[(y + 1) * xSize + x] + frame[(y - 1) * xSize + x] + frame[y * xSize + x + 1] + frame[y * xSize + x - 1]) / 4.0;
+			diff += std::abs(inFrame[y * xSize + x] - frame[y * xSize + x]);
+		}
+	}
+
+	double* p;
+
+	while (diff > delta)
+	{
+		p = inFrame;
+		inFrame = frame;
+		frame = p;
+
+		diff = 0;
+
+		if (size > 1) {
+			if (rank == 0) {
+				MPI_Send (inFrame + (yLast - 1) * xSize, xSize, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+			} else {
+				MPI_Recv (inFrame + (yFirst - 1) * xSize, xSize, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, &status);
+				if (rank != size - 1) {
+					MPI_Send (inFrame + (yLast - 1) * xSize, xSize, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD);
+				}
+			}
+			if (rank == size - 1) {
+				MPI_Send (inFrame + yFirst * xSize, xSize, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD);
+			} else {
+				MPI_Recv (inFrame + yLast * xSize, xSize, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD, &status);
+				if (rank != 0) {
+					MPI_Send (inFrame + yFirst * xSize, xSize, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD);
+				}
+			}
+		}
+
+
+
+		for (uint32_t y = yFirst; y < yLast; y++) {
+			for (uint32_t x = 1; x < xSize - 1; x++) {
+				frame[y * xSize + x] = (inFrame[(y + 1) * xSize + x] + inFrame[(y - 1) * xSize + x] + inFrame[y * xSize + x + 1] + inFrame[y * xSize + x - 1]) / 4.0;
+				diff += std::abs(frame[y * xSize + x] - inFrame[y * xSize + x]);
+			}
+		}
+
+		MPI_Allreduce(&diff, &diff, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+	}
+
+	if (rank == 0) {
+		yFirst += mySize;
+		mySize -= (ySize % size - 1);
+		for (int i = 1; i < size; i++) {
+			if (i == size - 1) {
+				mySize--;
+			}
+			MPI_Recv (frame + yFirst * xSize, mySize * xSize, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &status);
+			yFirst += mySize;
+		}
+	} else {
+		MPI_Send (frame + yFirst * xSize, mySize * xSize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+	}
+
+	free (inFrame);
+
+	if (rank > 0) {
+		free (frame);
+	}
 }
+
 
 int main(int argc, char** argv)
 {
