@@ -15,78 +15,66 @@ void st_calc(double* arr, uint32_t y_size, uint32_t x_size, int rank, int size)
 
 void calc(double* arr, uint32_t y_size, uint32_t x_size, int rank, int size)
 {
-  // it is only interesting if there are 1 or 4 threads, so fit other cases to these
   if (size == 0)
     return;
-  if (size < 4) {
-    if (rank == 0)
-      st_calc(arr, y_size, x_size, rank, size);
+  if (size == 1) {
+    st_calc(arr, y_size, x_size, rank, size);
     return;
   }
-
+  MPI_Bcast(&x_size, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&y_size, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+  // In this implementation cannot parallel further than x_size cells
+  // (theoretical limit (4*x_size))
   MPI_Comm my_comm;
-  int color = (rank > 3) ? MPI_UNDEFINED : 0;
+  int color = (rank >= (int)x_size) ? MPI_UNDEFINED : 0;
   MPI_Comm_split(MPI_COMM_WORLD, color, rank, &my_comm);
-  if (rank > 3)
+  if (rank >= (int)x_size)
     return;
-  assert(size >= 4);
-  size = 4;
+  if (size > (int)x_size)
+    size = x_size;
 
-  uint32_t r_y_size = y_size; // r for rounded
-  if (y_size % 4)
-    r_y_size += 4 - y_size % 4;
-
-  MPI_Bcast(&  x_size, 1, MPI_UNSIGNED, 0, my_comm);
-  MPI_Bcast(&r_y_size, 1, MPI_UNSIGNED, 0, my_comm);
-
-  double* mempool = NULL;
-  double *arrs[4] = {NULL};
+  double* transponded;
   if (rank == 0) {
-    mempool = (double*)calloc(x_size * r_y_size, sizeof(double));
-    assert(mempool);
-    for (int i = 0; i < 4; i++)
-      arrs[i] = &mempool[(x_size * r_y_size / 4) * i];
+    transponded = (double*)calloc(x_size * y_size, sizeof(double));
+    assert(transponded);
 
-    int j = 0;
-    for (uint32_t i = 0; i < y_size; i++) {
-      memcpy(&arrs[i % 4][x_size * j], &arr[x_size * i], x_size * sizeof(double));
-      j += (i % 4 == 3);
-    }
+    for (uint32_t i = 0; i < y_size; i++)
+      for (uint32_t j = 0; j < x_size; j++)
+        transponded[i*x_size + j] = arr[j*y_size + i];
   }
 
-  double* localarr = NULL;
-  if (rank == 0)
-    localarr = arrs[0];
-  else {
-  localarr = (double*)calloc(x_size * r_y_size / 4, x_size);
-  assert(localarr);
-  }
+  uint32_t lines_per_process = x_size / size;
+  uint32_t cells_per_process = lines_per_process * y_size;
 
-  MPI_Scatter(mempool,  (x_size * r_y_size / 4), MPI_DOUBLE,
-              localarr, (x_size * r_y_size / 4), MPI_DOUBLE,
+  double* mycells = (double*)calloc(cells_per_process, sizeof(double));
+  assert(mycells);
+
+  MPI_Scatter(transponded, cells_per_process, MPI_DOUBLE,
+              mycells,     cells_per_process, MPI_DOUBLE,
               0, my_comm);
 
-  // Cache friendly?
-  for (uint32_t y = 1; y < r_y_size/4; y++)
-    for (uint32_t x = 0; x < x_size; x++)
-      localarr[y*x_size + x] = sin(localarr[(y - 1)*x_size + x]);
+  for (uint32_t x = 0; x < lines_per_process; x++)
+    for (uint32_t y = 4; y < y_size; y++)
+      mycells[x*y_size + y] = sin(mycells[x*y_size + (y - 4)]);
 
-  MPI_Gather(localarr, (x_size * r_y_size / 4), MPI_DOUBLE,
-             mempool,  (x_size * r_y_size / 4), MPI_DOUBLE,
+  MPI_Gather(mycells,     cells_per_process, MPI_DOUBLE,
+             transponded, cells_per_process, MPI_DOUBLE,
              0, my_comm);
 
-  if (rank == 0) {
-    int j = 0;
-    for (uint32_t i = 0; i < y_size; i++) {
-      memcpy(&arr[x_size * i], &arrs[i % 4][x_size * j], x_size * sizeof(double));
-      j += (i % 4 == 3);
-    }
-  }
+  free(mycells);
 
-  if (rank)
-    free(localarr);
-  if (!rank)
-    free(mempool);
+  // Compute remainder
+  if (rank == 0) {
+    for (uint32_t x = lines_per_process * size; x < x_size; x++)
+      for (uint32_t y = 4; y < y_size; y++)
+        transponded[x*y_size + y] = sin(transponded[x*y_size + (y - 4)]);
+
+    for (uint32_t i = 0; i < y_size; i++)
+      for (uint32_t j = 0; j < x_size; j++)
+        arr[i*x_size + j] = transponded[j*y_size + i];
+
+    free(transponded);
+  }
 
   MPI_Comm_free(&my_comm);
 }
