@@ -140,6 +140,12 @@ void calc(double* frame, uint32_t ySize, uint32_t xSize, double delta, int rank,
     }
 
     delete tmpFrame;
+    delete recvFrame;
+    if (rank != 0)
+    {
+	delete frame;
+    }
+
 
 }
 
