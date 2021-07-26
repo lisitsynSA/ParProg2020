@@ -2,10 +2,33 @@
 #include <iomanip>
 #include <fstream>
 #include <omp.h>
+#include <gmpxx.h>
 
-double calc(uint32_t x_last, uint32_t num_threads)
+
+
+double fact_calculate( int i)
 {
-  return 0;
+    static double res = 1.0;
+    res *= i;
+    return ( res);
+}
+double calc(uint32_t x_last, uint32_t num_threads) {
+    double *factorials = (double *) calloc(x_last, sizeof(double));
+
+    factorials[0] = 1;
+    for (int i = 1; i <= (int)x_last; i++) {
+        factorials[i] = fact_calculate( i);
+    }
+
+    double res = 0;
+    #pragma omp parallel for num_threads(num_threads) reduction(+:res)    
+    for (int i = (int)(x_last - 1); i >= 0; i--) 
+    {
+            res += 1 / factorials[i];
+    }
+    
+    free( factorials);
+    return res;
 }
 
 int main(int argc, char** argv)
